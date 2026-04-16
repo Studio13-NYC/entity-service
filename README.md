@@ -1,6 +1,6 @@
 # entity-service
 
-FastAPI **named-entity style extraction** service with a **TypeScript HTTP client**, **alias + optional schema-driven matching**, optional **GLiNER** (off by default), **merge** logic for overlapping spans, and **pytest** coverage. **`POST /extract`** is a **pure pipeline** over the request body and does **not** query TypeDB. Optional **read-only** TypeDB HTTP endpoints under **`/schema-pipeline/*`** (when `TYPEDB_*` is set on the server) help apps fetch raw define text, validate ER assumptions, then build a **`schema`** for `/extract`. The **`/extract` response JSON shape is stable**; new behavior is added only via optional request fields.
+FastAPI **named-entity style extraction** service with a **TypeScript HTTP client**, **alias + optional schema-driven matching**, optional **GLiNER** (off by default), **merge** logic for overlapping spans, and **pytest** coverage. By default **`POST /extract`** does **not** query TypeDB (client may send optional **`schema`** JSON). With optional **`useTypeDbTypes`: true** on the request body, the server performs **read-only** TypeDB calls to align labels with the live define schema (see `docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`). Optional **read-only** TypeDB HTTP endpoints under **`/schema-pipeline/*`** (when `TYPEDB_*` is set on the server) help apps fetch raw define text, validate ER assumptions, then build a **`schema`** for `/extract`. The **`entities[]`** items keep the stable **`text` / `label` / `start` / `end` / `confidence`** fields; additive fields (for example **`typeCandidates`**, **`labelCandidates`**) appear when present.
 
 This document is written so you can **reproduce the setup from an empty machine** after you have this repository’s source tree (clone or copy files). It does not duplicate every source line; it describes **layout, contracts, tooling, and commands** end to end.
 
@@ -9,6 +9,8 @@ This document is written so you can **reproduce the setup from an empty machine*
 For **integrators and AI agents** (architecture, HTTP contract, `schema`, TypeDB env, tests, and troubleshooting in one place), use:
 
 **[`docs/USER_AND_AGENT_GUIDE.md`](docs/USER_AND_AGENT_GUIDE.md)** · **[`docs/ENTITY_SERVICE_WORKFLOWS.md`](docs/ENTITY_SERVICE_WORKFLOWS.md)** (Mermaid: flows inside ES + integrators)
+
+**GrooveGraph + TypeDB on the API process:** [`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`](docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md) (why `gg` `.env` ≠ entity-service env).
 
 To **onboard a new coding agent** with a single copy-paste brief: **[`docs/NEW_AGENT_ONBOARDING_PROMPT.md`](docs/NEW_AGENT_ONBOARDING_PROMPT.md)** (paste from the file’s horizontal rule through section 10).
 
@@ -47,6 +49,9 @@ entity-service/
   docs/
     USER_AND_AGENT_GUIDE.md # End-to-end guide for users and AI agents
     ENTITY_SERVICE_WORKFLOWS.md # Mermaid diagrams: ES flows + TypeDB/TS paths
+    ENTITY_SERVICE_PUNCH_LIST.md # GrooveGraph status + tracking tags
+    GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md # TypeDB env must be on the ES process
+    AGENT_ENTITY_SERVICE_ISSUES.md # Symptom matrix for gg + ES + TypeDB
     NEW_AGENT_ONBOARDING_PROMPT.md # Copy-paste handoff for new agents
   AGENTS.md                 # Agent / roadmap notes (optional for humans)
   README.md                 # This file
@@ -75,6 +80,11 @@ entity-service/
       health.py               # GET /health
       extract.py              # POST /extract
       schema_pipeline.py      # POST /schema-pipeline/raw|validate|formatted (optional TypeDB)
+    middleware/
+      request_trace.py        # Per-request trace + X-Request-Id
+    logging_setup.py          # app.* stderr logging + request_id in format
+    pipeline_file_log.py      # Optional rotating logs under logs/pipeline/
+    request_context.py        # contextvar request_id for log filter
     services/
       __init__.py
       alias_matcher.py        # AliasMatcher: substring scan + overlap dedupe
@@ -82,6 +92,7 @@ entity-service/
       schema_aliases.py       # EntitySchemaPayload → extra alias rows
       schema_pipeline.py      # Raw → validate → formatted schema (TypeDB HTTP, read-only)
       typedb_connection.py    # Env → TypeDbHttpSettings (optional)
+      typedb_types_fetch.py   # Read-only define fetch for useTypeDbTypes on /extract
       typedb_http_client.py   # Sign-in + type-schema + one-shot query
       typedb_define_parse.py  # Parse define text (entity / owns / string attrs)
       typeql_builders.py      # Safe TypeQL fragments
@@ -229,6 +240,10 @@ Expect **`"ready": true`** in the JSON (omit **`| jq .`** if you do not have jq)
 
 **Debug logging:** set **`ENTITY_SERVICE_DEBUG_TYPEDB_BODY=1`** to allow truncated TypeQL / type-schema text in logs. Default logs record **sizes and hashes** only (see `app/services/typedb_http_client.py`).
 
+**HTTP request tracing (verbose by default):** every response includes **`X-Request-Id`**. Structured lines go to **stderr** under loggers `app.*` (start/end, optional JSON body preview at **DEBUG**). Turn off body capture in production with **`ENTITY_SERVICE_LOG_REQUEST_BODIES=0`**. See **`docs/USER_AND_AGENT_GUIDE.md`** §8 (HTTP request tracing).
+
+**Pipeline file logs (optional):** set **`ENTITY_SERVICE_PIPELINE_LOG_FILE=1`** to write rotating logs under **`logs/pipeline/`** (or **`ENTITY_SERVICE_PIPELINE_LOG_DIR`**). The directory is **gitignored**; use for GrooveGraph / agent self-evaluation of merge and typing stages.
+
 **One command (Python smoke, API must already be running):** from repo root, with **`uv`** on your PATH:
 
 ```bash
@@ -266,15 +281,15 @@ When **`TYPEDB_USERNAME`**, **`TYPEDB_DATABASE`**, and either **`TYPEDB_CONNECTI
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/schema-pipeline/raw` | Raw `define` type schema + bounded sample rows per **ER assumptions** (`entityTypes`, `nameAttribute`). |
+| `POST` | `/schema-pipeline/raw` | Raw `define` type schema + bounded sample rows per **ER assumptions** (`entityTypes`, `nameAttribute`). Response includes **`genericEntities`** (flattened sample rows + metadata) and **`typeCandidates`** (parsed define entity types). If **`entityTypes`** is `[]`, the server auto-samples up to **30** types from the define schema for discovery. |
 | `POST` | `/schema-pipeline/validate` | Check assumptions against a `typeSchemaDefine` string (no live TypeDB call). |
 | `POST` | `/schema-pipeline/formatted` | Produce `{ entityTypes, knownEntities }` for **`POST /extract`** after ontology checks. |
 
 See **`docs/USER_AND_AGENT_GUIDE.md`** §3. If TypeDB env is missing, **`/raw`** and **`/formatted`** return **503** with a hint; **`/validate`** always works.
 
-#### `POST /extract` response shape (stable)
+#### `POST /extract` response shape (stable core + additive fields)
 
-**Do not change field names or top-level structure:**
+Each **`entities[]`** item always includes **`text`**, **`label`**, **`start`**, **`end`**, **`confidence`**. The response also includes **`typeCandidates`** (labels the pipeline considered: TypeDB define types when applicable, schema, alias/model path). When **`useTypeDbTypes`** is **`true`**, spans whose label is not in the live TypeDB define schema are emitted with a **`generic:`…** label, and per-item **`labelCandidates`** may be present.
 
 ```json
 {
@@ -286,6 +301,9 @@ See **`docs/USER_AND_AGENT_GUIDE.md`** §3. If TypeDB env is missing, **`/raw`**
       "end": 0,
       "confidence": 0.0
     }
+  ],
+  "typeCandidates": [
+    { "label": "string", "source": "typedb_define", "score": null, "fitsExistingType": null }
   ]
 }
 ```
@@ -300,6 +318,7 @@ See **`docs/USER_AND_AGENT_GUIDE.md`** §3. If TypeDB env is missing, **`/raw`**
 | `options.use_aliases` | boolean | If `false`, skips file + schema alias matching. |
 | `options.use_model` | boolean | If `true`, merges GLiNER spans when `GLINER_ENABLED` and the `ml` extra are installed; otherwise the model path returns no entities. |
 | `schema` | object | Omit: no extra runtime aliases. See below. |
+| `useTypeDbTypes` | boolean | Default **`false`**. If **`true`**, performs **read-only** TypeDB type-schema fetch on this process and aligns labels (requires **`TYPEDB_*`** on the FastAPI process; see **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**). |
 
 **`schema`** (JSON key; Python attribute `entity_schema`):
 

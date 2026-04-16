@@ -12,10 +12,11 @@ This document complements **[`USER_AND_AGENT_GUIDE.md`](./USER_AND_AGENT_GUIDE.m
 |-----------|------------------------|---------------------|---------------------|
 | NER only, no catalog | No | No | `POST /extract` |
 | NER + runtime vocabulary from your app | No | Optional | `POST /extract` + `schema` body |
+| NER + live define alignment on ES | **Yes** (`TYPEDB_*` on ES) | Optional | `POST /extract` with **`useTypeDbTypes`: true** (read-only define fetch; **`typeCandidates`** + optional **`labelCandidates`**) |
 | Raw define + validate + `schema` from **Python** | **Yes** (`TYPEDB_*` on ES) | Optional elsewhere | `POST /schema-pipeline/raw` → `validate` → `formatted` → `POST /extract` |
 | Build `schema` in **TypeScript** | No | **Yes** | TS → TypeDB; then `POST /extract` |
 
-**Rule:** `POST /extract` **never** opens a TypeDB connection inside Python. TypeDB in ES exists **only** for `/schema-pipeline/*`.
+**Rules:** **`POST /extract`** does **not** write to TypeDB. By default it does **not** open TypeDB either. With **`useTypeDbTypes`: true**, Python opens a **read-only** HTTP session for the define type schema on the same process. **`/schema-pipeline/*`** always uses read-only TypeDB when env is set.
 
 ---
 
@@ -35,7 +36,7 @@ flowchart LR
 
 ## 3. Workflow B — Extract + client `schema`
 
-Caller (any HTTP client or TS) sends **`schema`** with `entityTypes` / `knownEntities`. Still **no** TypeDB in Python.
+Caller (any HTTP client or TS) sends **`schema`** with `entityTypes` / `knownEntities`. No TypeDB unless **`useTypeDbTypes`** is **`true`**.
 
 ```mermaid
 flowchart LR
@@ -94,7 +95,7 @@ flowchart TB
 
 ## 5. Workflow D — TypeScript–first (TypeDB only in Node)
 
-GrooveGraph / apps use **`src/typedb/`** + `@typedb/driver-http`. ES stays dumb to the database; it only receives **`schema`** on `/extract`.
+GrooveGraph / apps often use **`src/typedb/`** + `@typedb/driver-http` and send **`schema`** on **`/extract`**. Alternatively, with **`TYPEDB_*`** on ES, **`useTypeDbTypes`: true** on **`/extract`** performs a read-only define fetch for **`typeCandidates`** / label alignment without building **`schema`** in Node first.
 
 ```mermaid
 flowchart LR
@@ -146,7 +147,13 @@ flowchart TB
 
 ---
 
-## 8. Failure routing (operational)
+## 8. Observability (request tracing)
+
+Every HTTP request is logged under the **`app`** loggers with a shared **`request_id`** (and **`X-Request-Id`** on the response). **`POST /extract`** also emits **`extract_done`** with counts (full request JSON at **DEBUG** when enabled). Env vars: **`docs/USER_AND_AGENT_GUIDE.md`** §8.
+
+---
+
+## 9. Failure routing (operational)
 
 ```mermaid
 flowchart TD
@@ -171,6 +178,7 @@ See **`docs/USER_AND_AGENT_GUIDE.md`** §3 for stable **`detail`** shapes.
 
 | Area | Path |
 |------|------|
+| Request tracing | `app/middleware/request_trace.py`, `app/logging_setup.py`, `app/request_context.py` |
 | Extract | `app/routes/extract.py`, `app/services/extractor.py` |
 | Schema pipeline | `app/routes/schema_pipeline.py`, `app/services/schema_pipeline.py` |
 | TS TypeDB | `src/typedb/*` |

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
-from app.models import KnownEntityPayload
+from app.models import KnownEntityPayload, TypeCandidateItem
 from app.schema_pipeline_models import (
     ErAssumptions,
+    GenericEntityPayload,
     PerTypeRawSegment,
     SchemaPipelineFormattedResponse,
     SchemaPipelineIssue,
@@ -22,12 +24,39 @@ from app.services.typedb_http_client import TypeDbHttpClient
 
 # TypeDB ``answerCountLimit`` — clamp here because request models do not hard-cap ``limitPerType``.
 _MAX_ANSWER_LIMIT = 50_000
+# When ``assumptions.entityTypes`` is empty, auto-sample up to this many types from the define schema.
+_MAX_RAW_AUTOSAMPLE_TYPES = 30
+
+_PL = logging.getLogger("app.pipeline")
 
 
 def _clamp_answer_limit(n: int) -> int:
     if n < 1:
         return 1
     return min(n, _MAX_ANSWER_LIMIT)
+
+
+def _build_generic_entities(
+    per_type: list[PerTypeRawSegment],
+    name_attribute: str,
+) -> list[GenericEntityPayload]:
+    out: list[GenericEntityPayload] = []
+    for seg in per_type:
+        for idx, ans in enumerate(seg.sample_answers):
+            surface: str | None = None
+            if isinstance(ans, dict):
+                data = ans.get("data")
+                if isinstance(data, dict):
+                    surface = _parse_string_attribute_row(data, name_attribute)
+            out.append(
+                GenericEntityPayload(
+                    entity_type=seg.entity_type,
+                    name_attribute=name_attribute,
+                    surface=surface,
+                    sample_index=idx,
+                ),
+            )
+    return out
 
 
 def _parse_string_attribute_row(row: dict[str, Any], expected_attr: str) -> str | None:
@@ -60,7 +89,13 @@ async def run_pipeline_raw(
     label_set = set(parsed_labels)
     per_type: list[PerTypeRawSegment] = []
 
-    for et in assumptions.entity_types:
+    effective_types = (
+        list(assumptions.entity_types)
+        if assumptions.entity_types
+        else list(parsed_labels[:_MAX_RAW_AUTOSAMPLE_TYPES])
+    )
+
+    for et in effective_types:
         declared = et in label_set
         owns: list[str] = []
         name_ok = False
@@ -103,11 +138,18 @@ async def run_pipeline_raw(
             ),
         )
 
+    generic_entities = _build_generic_entities(per_type, assumptions.name_attribute)
+    type_candidates = [
+        TypeCandidateItem(label=lab, source="typedb_define") for lab in sorted(parsed_labels)
+    ]
+
     return SchemaPipelineRawResponse(
         type_schema_define=define,
         parsed_entity_type_labels=parsed_labels,
         assumptions=assumptions,
         per_type=per_type,
+        generic_entities=generic_entities,
+        type_candidates=type_candidates,
     )
 
 
@@ -183,6 +225,14 @@ async def run_pipeline_formatted(
             if val is None:
                 continue
             known.append(KnownEntityPayload(label=et, canonical=val, aliases=[]))
+
+    if not known:
+        _PL.warning(
+            "schema_pipeline_formatted_empty_known database=%s entity_types=%s skip_ontology_precheck=%s",
+            database,
+            assumptions.entity_types,
+            skip_ontology_precheck,
+        )
 
     return SchemaPipelineFormattedResponse(
         entity_types=list(assumptions.entity_types),

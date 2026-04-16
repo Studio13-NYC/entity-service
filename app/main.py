@@ -3,8 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.logging_setup import configure_app_logging
+from app.middleware.request_trace import RequestTraceMiddleware
 from app.routes import extract, health, schema_pipeline
 from app.services.typedb_connection import load_typedb_http_settings
+
+configure_app_logging()
 
 _LOG = logging.getLogger(__name__)
 
@@ -24,6 +28,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="NER Services", lifespan=lifespan)
+app.add_middleware(RequestTraceMiddleware)
 
 app.include_router(health.router)
 app.include_router(extract.router)

@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Shareable system documentation** (HTTP contract, `schema`, TypeDB TS layer, env, tests): [`docs/USER_AND_AGENT_GUIDE.md`](docs/USER_AND_AGENT_GUIDE.md). **Workflow diagrams (Mermaid):** [`docs/ENTITY_SERVICE_WORKFLOWS.md`](docs/ENTITY_SERVICE_WORKFLOWS.md). **New agent handoff prompt:** [`docs/NEW_AGENT_ONBOARDING_PROMPT.md`](docs/NEW_AGENT_ONBOARDING_PROMPT.md).
+**Shareable system documentation** (HTTP contract, `schema`, TypeDB TS layer, env, tests): [`docs/USER_AND_AGENT_GUIDE.md`](docs/USER_AND_AGENT_GUIDE.md). **Workflow diagrams (Mermaid):** [`docs/ENTITY_SERVICE_WORKFLOWS.md`](docs/ENTITY_SERVICE_WORKFLOWS.md). **GrooveGraph + TypeDB on ES:** [`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`](docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md). **New agent handoff prompt:** [`docs/NEW_AGENT_ONBOARDING_PROMPT.md`](docs/NEW_AGENT_ONBOARDING_PROMPT.md).
 
 This project implements a FastAPI-based entity extraction service with a TypeScript client. The system is evolving toward:
 
@@ -86,8 +86,8 @@ Define a schema payload contract (TS → Python): entity types, canonical entiti
 
 ## Constraints
 
-- **Do not** change the `/extract` **response** shape (`entities` array with `text`, `label`, `start`, `end`, `confidence`)
-- **`POST /extract`** must not query TypeDB; optional **read-only** TypeDB HTTP for **`/schema-pipeline/*`** is allowed when env is set (same credentials as TS); TS remains the primary way to build `schema`.
+- **Do not** change the **core** `/extract` **response** fields on each **`entities[]`** item (`text`, `label`, `start`, `end`, `confidence`). Additive fields (`typeCandidates`, optional `labelCandidates`) are OK.
+- **`POST /extract`:** default = **no** TypeDB. Optional **`useTypeDbTypes`: true** = **read-only** TypeDB define fetch on the FastAPI process. **`/schema-pipeline/*`** remains read-only when env is set. TS remains a common way to build **`schema`**, but is not the only path.
 - Keep **routes thin**; keep **extraction logic in `app/services/`** only
 - Prefer strict typing in Python and TypeScript
 
@@ -115,7 +115,7 @@ Define a schema payload contract (TS → Python): entity types, canonical entiti
 
 **Must not**
 
-- Directly write to TypeDB (yet)
+- Write to TypeDB (no commits / schema migrations from this service)
 - Contain frontend logic
 - Contain shell/script syntax inside `.py` files
 
@@ -226,7 +226,7 @@ Python must:
 
 - Mix PowerShell or shell syntax into Python files
 - Break the `/extract` response contract
-- Tightly couple to TypeDB inside Python too early
+- Require TypeDB for **`/extract`** unless the client explicitly sets **`useTypeDbTypes`**
 - Ship full model extraction before the alias path and tests are stable
 
 ---

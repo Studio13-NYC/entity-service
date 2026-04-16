@@ -16,6 +16,12 @@ def test_extract_request_omits_options_by_default() -> None:
     assert req.labels == []
     assert req.options is None
     assert req.entity_schema is None
+    assert req.use_typedb_types is False
+
+
+def test_extract_request_use_typedb_types_alias() -> None:
+    req = ExtractRequest.model_validate({"text": "hello", "useTypeDbTypes": True})
+    assert req.use_typedb_types is True
 
 
 def test_extract_request_options_defaults_when_empty_object() -> None:

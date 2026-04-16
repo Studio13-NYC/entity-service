@@ -23,11 +23,11 @@ Canonical remote is **`Studio13-NYC/entity-service`**. If your fork or default b
 The **entity-service** is a small stack that:
 
 1. Exposes a **FastAPI** HTTP API that turns free text into a list of **entity candidates** (text span, label, offsets, confidence).
-2. Ships a **TypeScript** client and optional **TypeDB** helpers so callers can stay **schema-aware** without putting a database inside the Python service.
+2. Ships a **TypeScript** client and optional **TypeDB** helpers so callers can stay **schema-aware**; Python may perform **read-only** TypeDB HTTP when you opt in (see below).
 
 **Architecture rules:**
 
-1. **`POST /extract`** never runs TypeDB queries itself. It only consumes the **`schema`** JSON you send (built in TypeScript or elsewhere).
+1. **`POST /extract`** by default uses only the request body (optional **`schema`** JSON). With **`useTypeDbTypes`: true**, the same process may perform **read-only** TypeDB calls to fetch the live **define** type schema and align labels (see **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**). There are **no** TypeDB writes from this service.
 2. **Optional TypeDB HTTP (read-only)** — when `TYPEDB_*` / `TYPEDB_CONNECTION_STRING` are set on the **server**, FastAPI exposes **`/schema-pipeline/*`** so an orchestrator can: pull **raw** define text + sample rows from ER assumptions, **validate** types locally from that string, then fetch a **formatted** `schema` for `/extract`. This path is **read-only**; it does not define or migrate schema.
 
 ---
@@ -57,13 +57,13 @@ flowchart LR
   Pipe --> Resp[JSON entities]
   Resp --> TS
   Resp --> Other
-  API -. optional read .-> TDB
+  API -. useTypeDbTypes read-only .-> TDB
 ```
 
 1. **Caller** has raw `text` and optional `labels`, `options`, and `schema`.
 2. Optionally, **TypeScript** uses `@typedb/driver-http`, env-based config, and modules under `src/typedb/` to read a **slice** of the knowledge graph and normalize it to the same JSON shape as `schema`.
 3. Optionally, the **same** TypeDB credentials on the server enable **`/schema-pipeline/raw` → `/validate` → `/formatted`** so the app can inspect raw ontology material, confirm types, then obtain a `schema` blob for **`POST /extract`**.
-4. **FastAPI** validates the body, runs the extractor (aliases, optional model, merge, label filter), returns **`entities`**.
+4. **FastAPI** validates the body, runs the extractor (aliases, optional model, merge, label filter), returns **`entities`** (and **`typeCandidates`** for this request). Optional **`useTypeDbTypes`** adds a read-only define fetch for label alignment.
 
 ---
 
@@ -87,14 +87,16 @@ Same JSON as **`GET /health`**. Prefer this path if your orchestrator treats **`
 | `labels` | No | If non-empty, only entities whose **`label`** is in this list are returned. If omitted or `[]`, no label filter. |
 | `options` | No | `{ "use_aliases": boolean, "use_model": boolean }`. Defaults: aliases **on**, model **off**. |
 | `schema` | No | Optional **runtime** vocabulary: `entityTypes` + `knownEntities`. Drives extra alias rows for this request only. |
+| `useTypeDbTypes` | No | Default **`false`**. If **`true`**, read-only TypeDB **define** fetch on this process; labels not in the schema get a **`generic:`…** prefix. Requires **`TYPEDB_*`** on the FastAPI process. See **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**. |
 
 **Response body** (JSON):
 
 | Field | Type | Meaning |
 |--------|------|---------|
-| `entities` | array | Each item: `text`, `label`, `start`, `end`, `confidence`. |
+| `entities` | array | Each item: **`text`**, **`label`**, **`start`**, **`end`**, **`confidence`** (stable). Optional **`labelCandidates`** when **`useTypeDbTypes`** is used. |
+| `typeCandidates` | array | Labels considered for this request (TypeDB define types when applicable, plus schema / pipeline labels). |
 
-**Stability:** the **`/extract` response shape** (`entities[]` fields above) is treated as **stable**. New behavior is added through **optional** request fields, not by renaming or removing existing fields.
+**Stability:** each **`entities[]`** element keeps the five core fields. New behavior is added through **optional** request fields and **additive** response fields (`typeCandidates`, optional `labelCandidates`), not by renaming or removing the core fields.
 
 **Wire format note:** Pydantic models use **camelCase** aliases for JSON (`entityTypes`, `knownEntities`, …). Some nested compatibility with snake_case exists where configured.
 
@@ -106,13 +108,13 @@ Use when the **app** must: (1) retrieve **raw** material from TypeDB from **ER a
 
 | Method | Path | TypeDB required | Purpose |
 |--------|------|-----------------|--------|
-| `POST` | `/schema-pipeline/raw` | Yes (503 if unset) | Returns `typeSchemaDefine`, parsed entity labels, and per-type sample `answers` (bounded read) or error text. |
+| `POST` | `/schema-pipeline/raw` | Yes (503 if unset) | Returns `typeSchemaDefine`, parsed entity labels, per-type sample `answers`, **`genericEntities`** (flattened samples + metadata), and **`typeCandidates`**. If **`entityTypes`** is `[]`, the server auto-samples up to **30** types from the define schema for discovery. |
 | `POST` | `/schema-pipeline/validate` | No | Body includes prior `typeSchemaDefine` + `assumptions`; returns `ready` and `issues[]`. |
 | `POST` | `/schema-pipeline/formatted` | Yes | After validation, returns `{ entityTypes, knownEntities }` (same shape as `schema` on `/extract`). Set `skipOntologyPrecheck: true` only if you already validated. |
 
 Env vars match the TypeScript driver: **`TYPEDB_CONNECTION_STRING`** and/or **`TYPEDB_ADDRESSES`**, **`TYPEDB_USERNAME`**, **`TYPEDB_PASSWORD`**, **`TYPEDB_DATABASE`**.
 
-**Machine-readable errors:** when **`/schema-pipeline/raw`** or **`/formatted`** fail due to configuration, connectivity, or validation, FastAPI returns JSON shaped as **`{ "detail": { "code", "message", "hint?" } }`**. Stable `code` values include **`typedb_not_configured_on_entity_service`** (missing env on the API process), **`typedb_database_not_found`**, **`typedb_http_error`**, and **`schema_pipeline_validation_failed`**. Prefer parsing `detail.code` over scraping HTML or relying on status text alone.
+**Machine-readable errors:** when **`/schema-pipeline/raw`**, **`/formatted`**, or **`POST /extract`** with **`useTypeDbTypes`: true** fail due to configuration or connectivity, FastAPI may return JSON shaped as **`{ "detail": { "code", "message", "hint?" } }`**. Stable `code` values include **`typedb_not_configured_on_entity_service`** (missing env on the API process), **`typedb_database_not_found`**, **`typedb_http_error`**, and **`schema_pipeline_validation_failed`**. Prefer parsing `detail.code` over scraping HTML or relying on status text alone.
 
 ---
 
@@ -255,6 +257,32 @@ Tests load **`.env` from `process.cwd()`** via `dotenv` (Node does not load `.en
 | GLiNER off/on | `GLINER_ENABLED`, `GLINER_MODEL_ID` (see README `ml` extra). |
 | Heavy ML deps | `uv sync --extra ml`; spaCy English model via `python -m spacy download en_core_web_sm` after that. |
 
+### HTTP request tracing (every call)
+
+Every request gets a **`X-Request-Id`** response header and structured lines on **stderr** from loggers under **`app.*`**.
+
+| Variable | Default | Meaning |
+|----------|---------|--------|
+| **`ENTITY_SERVICE_REQUEST_TRACE_LEVEL`** | `DEBUG` | Level for the `app` logger (start/end + JSON body preview at DEBUG). |
+| **`ENTITY_SERVICE_LOG_REQUEST_BODIES`** | `1` / true | When true, read and log JSON body previews for `POST`/`PUT`/`PATCH` (truncate with **`ENTITY_SERVICE_LOG_BODY_MAX_BYTES`**, default **16384**). Set to **`0`** in production if bodies are sensitive. |
+| **`ENTITY_SERVICE_LOG_BODY_SINGLE_LINE`** | off | If `1`, newlines in logged JSON are escaped (easier for log aggregators). |
+| **`ENTITY_SERVICE_LOG_FORMAT`** | *(see code)* | Python `logging` format string; must include `%(request_id)s`. |
+
+Log line shape: timestamp, **request id**, level, logger name, message. **`POST /extract`** also logs **`extract_done`** with `text_len`, `labels`, `entity_count`, and flags (no full text in that line; full JSON is at **DEBUG** when body logging is on).
+
+Implementation: `app/middleware/request_trace.py`, `app/logging_setup.py`, `app/request_context.py`.
+
+### Optional pipeline file logs (`logs/`)
+
+| Variable | Default | Meaning |
+|----------|---------|--------|
+| **`ENTITY_SERVICE_PIPELINE_LOG_FILE`** | off | Set to **`1`** / **`true`** to append rotating logs under **`ENTITY_SERVICE_PIPELINE_LOG_DIR`** (default **`logs/pipeline/`**). Logger: **`app.pipeline`** (merge / empty-result / formatted-empty hints). |
+| **`ENTITY_SERVICE_PIPELINE_LOG_DIR`** | `logs/pipeline` | Directory for **`entity-service-pipeline.log`** (created if missing; **`logs/`** is gitignored). |
+| **`ENTITY_SERVICE_PIPELINE_LOG_MAX_BYTES`** | `10485760` | Rotate when log file exceeds this size. |
+| **`ENTITY_SERVICE_PIPELINE_LOG_BACKUPS`** | `5` | Number of rotated files to keep. |
+
+Implementation: `app/pipeline_file_log.py` (invoked from `app/logging_setup.py` at startup).
+
 ---
 
 ## 9. Testing matrix
@@ -269,7 +297,7 @@ Tests load **`.env` from `process.cwd()`** via `dotenv` (Node does not load `.en
 
 ## 10. Ontology alignment (Music Ontology and beyond)
 
-This service does **not** parse RDF/TTL. To align with vocabularies such as the [Music Ontology](https://github.com/motools/musicontology), you map your classes to the **string labels** you send in `labels` and `schema.knownEntities[].label`, and you supply **known entities + aliases** that match how users write text. TypeDB can be the **source of truth** for those rows in TS; the HTTP body is always a **slice**, not a live graph join inside Python.
+This service does **not** parse RDF/TTL. To align with vocabularies such as the [Music Ontology](https://github.com/motools/musicontology), you map your classes to the **string labels** you send in `labels` and `schema.knownEntities[].label`, and you supply **known entities + aliases** that match how users write text. TypeDB can be the **source of truth** for those rows in TS or on the server via **`/schema-pipeline/*`** / optional **`useTypeDbTypes`**; the HTTP body is still a **slice** for instance data (no graph writes from ES).
 
 ---
 
@@ -277,7 +305,7 @@ This service does **not** parse RDF/TTL. To align with vocabularies such as the 
 
 | Symptom | Things to check |
 |---------|------------------|
-| Log line at API startup: “TypeDB HTTP is not configured in this process” | Expected when **`TYPEDB_*`** is unset on the **FastAPI** process. **`POST /schema-pipeline/raw`** / **`formatted`** will **503** until you load the same vars here (not only in GrooveGraph). |
+| Log line at API startup: “TypeDB HTTP is not configured in this process” | Expected when **`TYPEDB_*`** is unset on the **FastAPI** process. **`POST /schema-pipeline/raw`** / **`formatted`**, and **`POST /extract`** with **`useTypeDbTypes`: true**, will **503** until you load the same vars here (not only in GrooveGraph). See **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**. |
 | TS tests skip TypeDB integration | `.env` at repo root; `TYPEDB_USERNAME` + `TYPEDB_DATABASE` or valid `TYPEDB_CONNECTION_STRING`; run `npm test` from repo root (`cwd`). |
 | `verifyTypeDbConnection` fails | Cluster URL, credentials, database name spelling; TLS / port in connection string. |
 | `assertExtractionPlanInOntology` throws | Entity type or attribute not present in **define** schema; adjust `entityTypes` / `nameAttribute` or schema in TypeDB. |
@@ -291,10 +319,15 @@ This service does **not** parse RDF/TTL. To align with vocabularies such as the 
 ```text
 scripts/smoke_schema_pipeline.py   CLI: health + validate (+ optional /raw)
 app/main.py                 FastAPI app
+app/middleware/request_trace.py   HTTP trace + X-Request-Id
+app/logging_setup.py        stderr logging + request_id format
+app/pipeline_file_log.py    optional rotating file logs under logs/
+app/request_context.py      request_id contextvar
 app/routes/extract.py       POST /extract
 app/routes/schema_pipeline.py   POST /schema-pipeline/*
 app/models.py               Request/response Pydantic models
 app/services/extractor.py   Pipeline orchestration
+app/services/typedb_types_fetch.py   read-only define fetch for useTypeDbTypes
 app/config/aliases.py       Default aliases
 
 src/ner-client/             HTTP client + types
@@ -311,13 +344,13 @@ AGENTS.md                   Maintainer / agent roadmap
 
 ## 13. Summary for agents (copy-paste checklist)
 
-1. **`POST /extract`** does not query TypeDB; it only consumes optional **`schema`** JSON.  
+1. **`POST /extract`** defaults to **no** TypeDB calls; optional **`schema`** JSON supplies runtime vocabulary. With **`useTypeDbTypes`: true**, ES performs **read-only** define fetch for label alignment (requires **`TYPEDB_*`** on this process).  
 2. **Callers** send optional **`schema`** on `POST /extract` to inject known entities and aliases.  
 3. **TypeScript** `src/typedb/` can build `schema` from TypeDB using env + `@typedb/driver-http`.  
 4. **Optional** same env on the **Python server** enables **`/schema-pipeline/raw`**, **`/validate`**, **`/formatted`** for raw → examine → formatted flows.  
 5. **Connection string** `TYPEDB_CONNECTION_STRING` is parsed for Cloud; **`TYPEDB_ADDRESSES`** overrides hosts (TS and Python).  
 6. **Ontology checks** use **define** type schema parsing + safe TypeQL for bounded data reads.  
-7. **Stability** is anchored on **`entities[]`** shape; extend via optional request fields.  
+7. **Stability:** each **`entities[]`** item keeps **`text` / `label` / `start` / `end` / `confidence`**; add **`typeCandidates`** and optional **`labelCandidates`** as additive JSON.  
 8. **Tests:** `uv run pytest`, `uv run pytest -q -m contract` (offline HTTP contracts), `npm test`, `npm run smoke`, `npm run smoke:schema-pipeline` for different layers.
 
 When in doubt, read **`app/services/extractor.py`** for runtime order and **`app/models.py`** for the exact JSON contract.

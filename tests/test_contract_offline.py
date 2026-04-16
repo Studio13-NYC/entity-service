@@ -65,7 +65,10 @@ def test_post_extract_mo_style_schema_and_labels_contract() -> None:
     ent = body["entities"][0]
     assert ent["label"] == "mo-music-artist"
     assert ent["text"] == "Example Artist"
-    assert set(ent) == {"text", "label", "start", "end", "confidence"}
+    assert set(ent.keys()) >= {"text", "label", "start", "end", "confidence"}
+    assert "typeCandidates" in body
+    assert isinstance(body["typeCandidates"], list)
+    assert any(c.get("label") == "mo-music-artist" for c in body["typeCandidates"])
 
 
 @pytest.mark.contract
@@ -88,6 +91,55 @@ def test_post_extract_mo_style_default_alias_and_label_filter() -> None:
 def test_get_health_and_ready_contract() -> None:
     assert client.get("/health").json() == {"ok": True}
     assert client.get("/ready").json() == {"ok": True}
+
+
+@pytest.mark.contract
+def test_post_extract_use_typedb_types_503_when_typedb_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for key in (
+        "TYPEDB_CONNECTION_STRING",
+        "TYPEDB_USERNAME",
+        "TYPEDB_PASSWORD",
+        "TYPEDB_DATABASE",
+        "TYPEDB_ADDRESSES",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    r = client.post("/extract", json={"text": "hello", "useTypeDbTypes": True})
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "typedb_not_configured_on_entity_service"
+
+
+@pytest.mark.contract
+def test_post_extract_use_typedb_types_generic_when_label_not_in_schema(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.routes.extract as ex
+
+    settings = TypeDbHttpSettings(
+        base_url="https://typedb.example",
+        username="u",
+        password="p",
+        database="music",
+    )
+    monkeypatch.setattr(ex, "load_typedb_http_settings", lambda: settings)
+
+    async def _fake_labels(_s: TypeDbHttpSettings) -> list[str]:
+        return ["mo-music-artist"]
+
+    monkeypatch.setattr(ex, "fetch_parsed_entity_type_labels", _fake_labels)
+
+    r = client.post(
+        "/extract",
+        json={"text": "Matt Sweet", "useTypeDbTypes": True},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["entities"]) == 1
+    ent = body["entities"][0]
+    assert ent["label"].startswith("generic:")
+    assert ent.get("labelCandidates")
+    assert "typeCandidates" in body
 
 
 @pytest.mark.contract
@@ -133,6 +185,57 @@ def test_schema_pipeline_raw_with_mocked_typedb(monkeypatch: pytest.MonkeyPatch)
     per = {seg["entityType"]: seg for seg in body["perType"]}
     assert per["mo-music-artist"]["declaredInDefineSchema"] is True
     assert len(per["mo-music-artist"]["sampleAnswers"]) >= 1
+    assert "genericEntities" in body
+    assert isinstance(body["genericEntities"], list)
+    assert len(body["genericEntities"]) >= 1
+    ge0 = body["genericEntities"][0]
+    assert ge0["entityType"] == "mo-music-artist"
+    assert "typeCandidates" in body
+    assert any(c["label"] == "mo-music-artist" for c in body["typeCandidates"])
+
+
+@pytest.mark.contract
+def test_schema_pipeline_raw_empty_entity_types_autosamples(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.routes.schema_pipeline as sp
+
+    settings = TypeDbHttpSettings(
+        base_url="https://typedb.example",
+        username="u",
+        password="p",
+        database="music",
+    )
+    monkeypatch.setattr(sp, "load_typedb_http_settings", lambda: settings)
+
+    class _FakeClient:
+        def __init__(self, _http: object, _settings: TypeDbHttpSettings) -> None:
+            pass
+
+        async def get_databases(self) -> list[str]:
+            return ["music"]
+
+        async def get_database_type_schema(self, _database: str) -> str:
+            return _DEFINE_MO_ARTIST
+
+        async def one_shot_query(self, **kwargs: Any) -> dict[str, Any]:
+            return {"answers": [_sample_answer_row(attr="name", value="Auto Sample")]}
+
+    monkeypatch.setattr(sp, "TypeDbHttpClient", _FakeClient)
+
+    r = client.post(
+        "/schema-pipeline/raw",
+        json={
+            "assumptions": {
+                "entityTypes": [],
+                "nameAttribute": "name",
+                "limitPerType": 5,
+            },
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["perType"]
+    assert body["genericEntities"]
+    assert body["typeCandidates"]
 
 
 @pytest.mark.contract

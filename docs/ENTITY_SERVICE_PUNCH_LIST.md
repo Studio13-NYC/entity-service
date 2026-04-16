@@ -18,6 +18,7 @@ GrooveGraph (**`gg`**) and other clients integrate with **entity-service** over 
 | 6 | Safe logging for large define text | **Done:** sizes + SHA-256 at INFO; **`ENTITY_SERVICE_DEBUG_TYPEDB_BODY`** | — |
 | 7 | Smoke / short loop | **Done:** `scripts/smoke_schema_pipeline.py`, **`npm run smoke:schema-pipeline*`**, README | **You:** run smoke against the URL where ES listens. |
 | 8 | Contract tests without Brave | **Done:** **`pytest -m contract`**, `tests/test_contract_offline.py` | **You:** run **`uv run pytest -q -m contract`** in CI that only checks ES contracts. |
+| 9 | GrooveGraph extract + RAW discovery | **Done:** **`useTypeDbTypes`** on **`POST /extract`** (read-only define, **`typeCandidates`**, **`generic:`** fallback), **`genericEntities`** + **`typeCandidates`** on **`/raw`**, auto-sample when **`entityTypes`** is `[]`, pipeline **`logs/`** file logging | **You:** load **`TYPEDB_*`** on the ES process; see **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**. |
 
 ---
 
@@ -26,7 +27,7 @@ GrooveGraph (**`gg`**) and other clients integrate with **entity-service** over 
 | Tag | Where it appears | What it means |
 | --- | --- | --- |
 | **`upstream blocked`** | Docs, agent guidance | Failure is **entity-service configuration or capability**, not a GrooveGraph regression. Fix ES env or deployment, then re-run tests. |
-| **`typedb_not_configured_on_entity_service`** | `POST /schema-pipeline/*` **503** or JSON **`detail`** | TypeDB vars are missing on the **API process** that runs FastAPI. |
+| **`typedb_not_configured_on_entity_service`** | `POST /schema-pipeline/*` **503**, **`POST /extract`** with **`useTypeDbTypes`: true** **503**, or JSON **`detail`** | TypeDB vars are missing on the **API process** that runs FastAPI. |
 | **`entity_service`** | Pytest marker `@pytest.mark.entity_service` | Tests that need a **reachable** HTTP entity-service (live e2e). |
 | **`blocked: entity-service not reachable`** | Pytest skip text | Nothing listening at **`NER_SERVICE_URL`**. |
 | **`503`** | HTTP status on schema pipeline | Often **`typedb_not_configured_on_entity_service`** until **`detail.code`** is read. |
@@ -50,6 +51,8 @@ GrooveGraph (**`gg`**) and other clients integrate with **entity-service** over 
 7. **Smoke** — **`scripts/smoke_schema_pipeline.py`**, **`package.json`** scripts **`smoke:schema-pipeline`**, **`README.md`**.
 
 8. **Offline contracts** — **`pytest -m contract`**, **`tests/test_contract_offline.py`**.
+
+9. **GrooveGraph extract alignment** — **`app/routes/extract.py`**, **`app/services/typedb_types_fetch.py`**, **`app/services/extractor.py`**; **`app/pipeline_file_log.py`**; docs **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**.
 
 ---
 

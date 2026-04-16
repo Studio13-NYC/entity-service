@@ -3,6 +3,13 @@ export type ExtractOptions = {
   use_model?: boolean;
 };
 
+export type TypeCandidateItem = {
+  label: string;
+  source?: string;
+  score?: number | null;
+  fitsExistingType?: boolean | null;
+};
+
 export type EntityTypePayload = {
   name: string;
   aliases?: string[];
@@ -29,6 +36,8 @@ export type ExtractRequest = {
   options?: ExtractOptions;
   /** Runtime known entities + aliases (JSON key `schema` on the wire). */
   schema?: EntitySchemaPayload;
+  /** Read-only TypeDB define alignment on this process (requires `TYPEDB_*` on FastAPI). */
+  useTypeDbTypes?: boolean;
 };
 
 export type EntityCandidate = {
@@ -37,10 +46,12 @@ export type EntityCandidate = {
   start: number;
   end: number;
   confidence: number;
+  labelCandidates?: TypeCandidateItem[];
 };
 
 export type ExtractResponse = {
   entities: EntityCandidate[];
+  typeCandidates: TypeCandidateItem[];
 };
 
 export type HealthResponse = {

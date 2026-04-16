@@ -64,7 +64,7 @@ def test_entity_candidate_shape() -> None:
     assert len(entities) == 1
     e = entities[0]
     assert isinstance(e, EntityCandidate)
-    assert set(e.model_dump().keys()) == {
+    assert set(e.model_dump(exclude_none=True).keys()) == {
         "text",
         "label",
         "start",

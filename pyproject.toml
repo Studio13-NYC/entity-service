@@ -1,6 +1,6 @@
 [project]
 name = "entity-service"
-version = "0.0.4"
+version = "0.0.5"
 description = "FastAPI named-entity extraction with optional TypeScript TypeDB helpers"
 readme = "README.md"
 requires-python = ">=3.12"

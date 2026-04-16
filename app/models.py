@@ -51,7 +51,7 @@ class KnownEntityPayload(BaseModel):
 
 
 class EntitySchemaPayload(BaseModel):
-    """Schema context from the TS client. No database access in Python — TS sends slices."""
+    """Schema context from the TS client (or from ``/schema-pipeline/formatted``)."""
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -74,6 +74,17 @@ class ExtractOptions(BaseModel):
     use_model: bool = False
 
 
+class TypeCandidateItem(BaseModel):
+    """A label the pipeline considered (TypeDB define, aliases, model, or generic bucket)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    label: str
+    source: str = "pipeline"
+    score: float | None = None
+    fits_existing_type: bool | None = Field(default=None, alias="fitsExistingType")
+
+
 class ExtractRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -85,15 +96,37 @@ class ExtractRequest(BaseModel):
         alias="schema",
         description="Optional schema: known entities and aliases from the client.",
     )
+    use_typedb_types: bool = Field(
+        default=False,
+        alias="useTypeDbTypes",
+        description=(
+            "When true, perform read-only TypeDB type-schema fetch on this process to align labels "
+            "(requires TYPEDB_* on the FastAPI process)."
+        ),
+    )
 
 
 class EntityCandidate(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     text: str
     label: str
     start: int
     end: int
     confidence: float
+    label_candidates: list[TypeCandidateItem] | None = Field(
+        default=None,
+        alias="labelCandidates",
+        description="Optional per-span type alternatives when TypeDB alignment is enabled.",
+    )
 
 
 class ExtractResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
     entities: list[EntityCandidate]
+    type_candidates: list[TypeCandidateItem] = Field(
+        default_factory=list,
+        alias="typeCandidates",
+        description="Union of labels considered for this request (TypeDB + schema + model/alias path).",
+    )

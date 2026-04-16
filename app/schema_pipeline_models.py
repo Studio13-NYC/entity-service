@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models import KnownEntityPayload
+from app.models import KnownEntityPayload, TypeCandidateItem
 
 
 class ErAssumptions(BaseModel):
@@ -37,6 +37,18 @@ class PerTypeRawSegment(BaseModel):
     sample_answers: list[Any] = Field(default_factory=list, alias="sampleAnswers")
 
 
+class GenericEntityPayload(BaseModel):
+    """One sampled or inferred row for GrooveGraph discovery (``/schema-pipeline/raw``)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    entity_type: str = Field(alias="entityType")
+    name_attribute: str = Field(alias="nameAttribute")
+    surface: str | None = None
+    source: str = "typedb_sample"
+    sample_index: int = Field(default=0, alias="sampleIndex")
+
+
 class SchemaPipelineRawResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
@@ -44,6 +56,8 @@ class SchemaPipelineRawResponse(BaseModel):
     parsed_entity_type_labels: list[str] = Field(alias="parsedEntityTypeLabels")
     assumptions: ErAssumptions
     per_type: list[PerTypeRawSegment] = Field(alias="perType")
+    generic_entities: list[GenericEntityPayload] = Field(default_factory=list, alias="genericEntities")
+    type_candidates: list[TypeCandidateItem] = Field(default_factory=list, alias="typeCandidates")
 
 
 class SchemaPipelineIssue(BaseModel):
