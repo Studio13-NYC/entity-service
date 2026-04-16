@@ -1,0 +1,27 @@
+{
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "dotenv": "^16.4.7",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2",
+    "vitest": "^3.0.5"
+  },
+  "name": "entity-service",
+  "version": "0.0.1",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "@typedb/driver-http": "^3.8.1"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:typedb": "vitest run src/typedb/typedb-connection.test.ts",
+    "smoke": "ts-node src/test-ner.ts",
+    "typecheck": "tsc --noEmit",
+    "typedb:dump-ontology": "ts-node src/typedb/scripts/dump-ontology.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}

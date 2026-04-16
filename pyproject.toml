@@ -1,0 +1,36 @@
+[project]
+name = "entity-service"
+version = "0.0.1"
+description = "FastAPI named-entity extraction with optional TypeScript TypeDB helpers"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.115.0",
+    "rapidfuzz>=3.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/Studio13/entity-service"
+Documentation = "https://github.com/Studio13/entity-service/blob/master/docs/USER_AND_AGENT_GUIDE.md"
+
+[project.optional-dependencies]
+ml = [
+    "gliner>=0.2.22",
+    "spacy>=3.7.4,<3.9",
+]
+
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

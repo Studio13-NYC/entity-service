@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+.venv-ci/
+
+# Tests / tooling
+.pytest_cache/
+
+# Cursor / local IDE
+.cursor/
+
+# TypeScript build output
+dist/
+
+# Secrets / local env
+.env
+.env.local
+
+# Node
+node_modules/
