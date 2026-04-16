@@ -3,6 +3,13 @@
 from app.models import ExtractOptions, ExtractRequest
 
 
+def test_extract_request_ignores_unknown_top_level_keys() -> None:
+    req = ExtractRequest.model_validate(
+        {"text": "hello", "clientMetadata": {"version": 2}, "traceId": "abc"},
+    )
+    assert req.text == "hello"
+
+
 def test_extract_request_omits_options_by_default() -> None:
     req = ExtractRequest.model_validate({"text": "hello"})
     assert req.text == "hello"

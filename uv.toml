@@ -1,0 +1,2 @@
+# Windows / cross-volume: avoid hardlink install issues (uv "Failed to hardlink files" warnings).
+link-mode = "copy"

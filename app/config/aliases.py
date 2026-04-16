@@ -23,6 +23,15 @@ ALIASES_NESTED: dict[str, dict[str, list[str]]] = {
             "girlfriend",
         ],
     },
+    # Music Ontology–style TypeQL labels (hyphenated) are first-class bucket names for ``label`` / ``labels``.
+    # Keep surfaces disjoint from ``artist`` / ``recording`` rows to avoid duplicate spans under different labels.
+    "mo-test-widget": {
+        "Widget Company": [
+            "Widget Company",
+            "Widget Co",
+            "Widget",
+        ],
+    },
 }
 
 

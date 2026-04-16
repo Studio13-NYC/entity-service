@@ -1,6 +1,6 @@
 # entity-service
 
-FastAPI **named-entity style extraction** service with a **TypeScript HTTP client**, **alias + optional schema-driven matching**, optional **GLiNER** (off by default), **merge** logic for overlapping spans, and **pytest** coverage. This service is a **pure data-processing pipeline**: it **never connects to a database** (including TypeDB); the TS layer supplies any schema slice on the request. The **`/extract` response JSON shape is stable**; new behavior is added only via optional request fields.
+FastAPI **named-entity style extraction** service with a **TypeScript HTTP client**, **alias + optional schema-driven matching**, optional **GLiNER** (off by default), **merge** logic for overlapping spans, and **pytest** coverage. **`POST /extract`** is a **pure pipeline** over the request body and does **not** query TypeDB. Optional **read-only** TypeDB HTTP endpoints under **`/schema-pipeline/*`** (when `TYPEDB_*` is set on the server) help apps fetch raw define text, validate ER assumptions, then build a **`schema`** for `/extract`. The **`/extract` response JSON shape is stable**; new behavior is added only via optional request fields.
 
 This document is written so you can **reproduce the setup from an empty machine** after you have this repository’s source tree (clone or copy files). It does not duplicate every source line; it describes **layout, contracts, tooling, and commands** end to end.
 
@@ -8,7 +8,9 @@ This document is written so you can **reproduce the setup from an empty machine*
 
 For **integrators and AI agents** (architecture, HTTP contract, `schema`, TypeDB env, tests, and troubleshooting in one place), use:
 
-**[`docs/USER_AND_AGENT_GUIDE.md`](docs/USER_AND_AGENT_GUIDE.md)**
+**[`docs/USER_AND_AGENT_GUIDE.md`](docs/USER_AND_AGENT_GUIDE.md)** · **[`docs/ENTITY_SERVICE_WORKFLOWS.md`](docs/ENTITY_SERVICE_WORKFLOWS.md)** (Mermaid: flows inside ES + integrators)
+
+To **onboard a new coding agent** with a single copy-paste brief: **[`docs/NEW_AGENT_ONBOARDING_PROMPT.md`](docs/NEW_AGENT_ONBOARDING_PROMPT.md)** (paste from the file’s horizontal rule through section 10).
 
 ---
 
@@ -16,7 +18,7 @@ For **integrators and AI agents** (architecture, HTTP contract, `schema`, TypeDB
 
 | Layer | Role |
 |--------|------|
-| **`app/`** | FastAPI app: routes, Pydantic models, services (matcher, extractor, schema → aliases, optional GLiNER). |
+| **`app/`** | FastAPI app: routes (`/extract`, optional **`/schema-pipeline/*`**), Pydantic models, services (matcher, extractor, schema → aliases, optional GLiNER, optional TypeDB HTTP reads). |
 | **`app/config/aliases.py`** | Default aliases as a **nested dict** (flattened to rows for matching). |
 | **`app/services/merge.py`** | Merges alias + model candidates (RapidFuzz-assisted overlap handling). |
 | **`tests/`** | `pytest` for matcher, extractor, models, schema, merge, GLiNER wiring. |
@@ -44,20 +46,27 @@ Target: **Python 3.12+** (`requires-python` in `pyproject.toml`).
 entity-service/
   docs/
     USER_AND_AGENT_GUIDE.md # End-to-end guide for users and AI agents
+    ENTITY_SERVICE_WORKFLOWS.md # Mermaid diagrams: ES flows + TypeDB/TS paths
+    NEW_AGENT_ONBOARDING_PROMPT.md # Copy-paste handoff for new agents
   AGENTS.md                 # Agent / roadmap notes (optional for humans)
   README.md                 # This file
   vitest.config.ts          # Vitest (TS tests, including optional TypeDB integration)
   pyproject.toml            # Python project, deps, hatchling wheel, pytest config
+  uv.toml                   # uv defaults (e.g. link-mode=copy on Windows)
   uv.lock                   # Locked Python deps (commit this)
   package.json              # npm scripts + TS devDependencies
   package-lock.json         # npm lock (commit if you use npm ci)
   tsconfig.json             # TypeScript compiler options
   test.ps1                  # PowerShell wrapper: sets NER_SERVICE_URL, runs npm smoke
+  scripts/
+    smoke_schema_pipeline.py  # Health + /validate (+ optional /raw with --typedb)
+    repair_stale_pydantic_dist_info.py  # Remove pydantic_core *.dist-info without RECORD
 
   app/
     __init__.py
     main.py                 # FastAPI app + router includes
     models.py                 # Request/response + schema + options Pydantic models
+    schema_pipeline_models.py # Pydantic models for /schema-pipeline/*
     config/
       __init__.py
       aliases.py              # Default ALIASES rows
@@ -65,11 +74,17 @@ entity-service/
       __init__.py
       health.py               # GET /health
       extract.py              # POST /extract
+      schema_pipeline.py      # POST /schema-pipeline/raw|validate|formatted (optional TypeDB)
     services/
       __init__.py
       alias_matcher.py        # AliasMatcher: substring scan + overlap dedupe
       extractor.py            # Orchestrates aliases, schema, model, merge, labels, options
       schema_aliases.py       # EntitySchemaPayload → extra alias rows
+      schema_pipeline.py      # Raw → validate → formatted schema (TypeDB HTTP, read-only)
+      typedb_connection.py    # Env → TypeDbHttpSettings (optional)
+      typedb_http_client.py   # Sign-in + type-schema + one-shot query
+      typedb_define_parse.py  # Parse define text (entity / owns / string attrs)
+      typeql_builders.py      # Safe TypeQL fragments
       merge.py                # Overlap / near-duplicate merge (RapidFuzz)
       gliner_extractor.py   # extract_with_model (optional GLiNER; off by default)
       spacy_extractor.py      # Stub for future spaCy EntityRuler path
@@ -110,6 +125,8 @@ entity-service/
 Either **clone** this repo or **copy** the tree above into an empty folder and `cd` into it.
 
 ### 2. Python environment and dependencies
+
+**Windows / `pydantic_core`:** If `uv sync` warns about **`pydantic_core-*.dist-info`** missing **`RECORD`**, stop any running **`fastapi dev`** / Python using `.venv`, then run **`uv run python scripts/repair_stale_pydantic_dist_info.py`** and **`uv sync --all-groups`** again. The repo **`uv.toml`** sets **`link-mode = "copy"`** to reduce hardlink-related install issues.
 
 ```bash
 # Install runtime + dev (pytest) from uv.lock
@@ -165,6 +182,12 @@ Quiet:
 uv run --group dev pytest -q
 ```
 
+Offline **HTTP + schema-pipeline contract** tests (mocked TypeDB, no Brave / no live DB):
+
+```bash
+uv run pytest -q -m contract
+```
+
 ### 6. Verify TypeScript (no emit)
 
 ```bash
@@ -194,19 +217,64 @@ $env:NER_SERVICE_URL = "http://127.0.0.1:8000"; npm run smoke
 
 Or use **`.\test.ps1`** / **`.\test.ps1 http://127.0.0.1:9000`** on Windows.
 
+**Copy-paste “schema pipeline OK” (no live TypeDB):** with the API up, **`POST /schema-pipeline/validate`** always runs offline. A minimal check from the repo root:
+
+```bash
+curl -sS -X POST "http://127.0.0.1:8000/schema-pipeline/validate" \
+  -H "Content-Type: application/json" \
+  -d "{\"typeSchemaDefine\":\"define\\nattribute name, value string;\\nentity musician, owns name;\\n\",\"assumptions\":{\"entityTypes\":[\"musician\"],\"nameAttribute\":\"name\"}}" | jq .
+```
+
+Expect **`"ready": true`** in the JSON (omit **`| jq .`** if you do not have jq). For **`/raw`** and **`/formatted`**, load **`TYPEDB_*`** into the **same** environment as `uv run fastapi dev …` (see **`docs/USER_AND_AGENT_GUIDE.md`**); a **200** from **`/schema-pipeline/raw`** is the strongest “TypeDB + database + pipeline” signal.
+
+**Debug logging:** set **`ENTITY_SERVICE_DEBUG_TYPEDB_BODY=1`** to allow truncated TypeQL / type-schema text in logs. Default logs record **sizes and hashes** only (see `app/services/typedb_http_client.py`).
+
+**One command (Python smoke, API must already be running):** from repo root, with **`uv`** on your PATH:
+
+```bash
+# Health + offline validate (no TypeDB on server required)
+uv run python scripts/smoke_schema_pipeline.py
+```
+
+With TypeDB enabled **on the FastAPI process**, also verify **`POST /schema-pipeline/raw`** returns **200**:
+
+```bash
+npm run smoke:schema-pipeline:typedb
+# equivalent:
+uv run python scripts/smoke_schema_pipeline.py --typedb
+```
+
+Optional: **`SMOKE_ENTITY_TYPES`** (comma-separated) for the **`/raw`** assumptions when using **`--typedb`**.
+
+Start the API with the **same** env file TypeDB uses, e.g. **`uv run --env-file .env fastapi dev app/main.py`**, then run the smoke from another terminal.
+
 ---
 
 ## HTTP API
 
-### `GET /health`
+### `GET /health` / `GET /ready`
 
-**Response:** `{ "ok": true }`
+**Response:** `{ "ok": true }` — identical contract; use either for automation.
 
 ### `POST /extract`
 
 **Content-Type:** `application/json`
 
-**Response shape (stable, do not change field names or top-level structure):**
+### Schema pipeline (optional TypeDB on server)
+
+When **`TYPEDB_USERNAME`**, **`TYPEDB_DATABASE`**, and either **`TYPEDB_CONNECTION_STRING`** or **`TYPEDB_ADDRESSES`** are set (same as the TS client), the server can help an app **inspect** then **format** graph-backed `schema` data:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/schema-pipeline/raw` | Raw `define` type schema + bounded sample rows per **ER assumptions** (`entityTypes`, `nameAttribute`). |
+| `POST` | `/schema-pipeline/validate` | Check assumptions against a `typeSchemaDefine` string (no live TypeDB call). |
+| `POST` | `/schema-pipeline/formatted` | Produce `{ entityTypes, knownEntities }` for **`POST /extract`** after ontology checks. |
+
+See **`docs/USER_AND_AGENT_GUIDE.md`** §3. If TypeDB env is missing, **`/raw`** and **`/formatted`** return **503** with a hint; **`/validate`** always works.
+
+#### `POST /extract` response shape (stable)
+
+**Do not change field names or top-level structure:**
 
 ```json
 {
@@ -326,7 +394,7 @@ Routes stay thin; logic lives under **`app/services/`**.
 ## Configuration
 
 - **Default aliases:** edit **`app/config/aliases.py`** — nested dict `ALIASES_NESTED` keyed by entity label, then canonical string, then a list of surface substrings. Flattened rows power the matcher.
-- **No database in Python:** schema and TypeDB access live in TypeScript; see **`src/typedb/schema-adapter.ts`** for a TS-side normalization shape.
+- **No TypeDB inside `POST /extract`:** supply `schema` from TypeScript (`src/typedb/`) or from **`POST /schema-pipeline/formatted`** when server env is configured.
 
 ## Music Ontology ([MO](https://github.com/motools/musicontology))
 

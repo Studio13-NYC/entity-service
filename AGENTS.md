@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Shareable system documentation** (HTTP contract, `schema`, TypeDB TS layer, env, tests): [`docs/USER_AND_AGENT_GUIDE.md`](docs/USER_AND_AGENT_GUIDE.md).
+**Shareable system documentation** (HTTP contract, `schema`, TypeDB TS layer, env, tests): [`docs/USER_AND_AGENT_GUIDE.md`](docs/USER_AND_AGENT_GUIDE.md). **Workflow diagrams (Mermaid):** [`docs/ENTITY_SERVICE_WORKFLOWS.md`](docs/ENTITY_SERVICE_WORKFLOWS.md). **New agent handoff prompt:** [`docs/NEW_AGENT_ONBOARDING_PROMPT.md`](docs/NEW_AGENT_ONBOARDING_PROMPT.md).
 
 This project implements a FastAPI-based entity extraction service with a TypeScript client. The system is evolving toward:
 
@@ -87,7 +87,7 @@ Define a schema payload contract (TS → Python): entity types, canonical entiti
 ## Constraints
 
 - **Do not** change the `/extract` **response** shape (`entities` array with `text`, `label`, `start`, `end`, `confidence`)
-- **Do not** embed TypeDB (or any database) access in Python — TS (or other clients) supply `schema`.
+- **`POST /extract`** must not query TypeDB; optional **read-only** TypeDB HTTP for **`/schema-pipeline/*`** is allowed when env is set (same credentials as TS); TS remains the primary way to build `schema`.
 - Keep **routes thin**; keep **extraction logic in `app/services/`** only
 - Prefer strict typing in Python and TypeScript
 

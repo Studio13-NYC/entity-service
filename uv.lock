@@ -341,10 +341,12 @@ wheels = [
 
 [[package]]
 name = "entity-service"
-version = "0.0.1"
+version = "0.0.4"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi", extra = ["standard"] },
+    { name = "httpx" },
+    { name = "pydantic" },
     { name = "rapidfuzz" },
 ]
 
@@ -363,6 +365,8 @@ dev = [
 requires-dist = [
     { name = "fastapi", extras = ["standard"], specifier = ">=0.115.0" },
     { name = "gliner", marker = "extra == 'ml'", specifier = ">=0.2.22" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.7.0,<3" },
     { name = "rapidfuzz", specifier = ">=3.0.0" },
     { name = "spacy", marker = "extra == 'ml'", specifier = ">=3.7.4,<3.9" },
 ]

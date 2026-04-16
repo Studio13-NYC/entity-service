@@ -12,6 +12,7 @@ wheels/
 
 # Tests / tooling
 .pytest_cache/
+debug-*.log
 
 # Cursor / local IDE
 .cursor/

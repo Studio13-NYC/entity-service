@@ -1,11 +1,13 @@
 [project]
 name = "entity-service"
-version = "0.0.1"
+version = "0.0.4"
 description = "FastAPI named-entity extraction with optional TypeScript TypeDB helpers"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.115.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.7.0,<3",
     "rapidfuzz>=3.0.0",
 ]
 
@@ -34,3 +36,6 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "contract: offline API contract tests (TestClient + mocks; no Brave or live TypeDB) — entity_service_contract_tests_no_brave",
+]

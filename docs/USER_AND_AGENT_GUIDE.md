@@ -12,6 +12,7 @@ This document is for **humans integrating** the NER / entity extraction HTTP ser
 | **Repository (browse)** | `https://github.com/Studio13/entity-service` |
 | **This document on the default branch** | `https://github.com/Studio13/entity-service/blob/master/docs/USER_AND_AGENT_GUIDE.md` |
 | **Path inside any checkout** | `docs/USER_AND_AGENT_GUIDE.md` |
+| **Workflow diagrams (Mermaid)** | [`docs/ENTITY_SERVICE_WORKFLOWS.md`](./ENTITY_SERVICE_WORKFLOWS.md) |
 
 If your published remote differs from `Studio13/entity-service` or your default branch is not `master`, run `git remote get-url origin` and `git branch --show-default` (or check your host’s default branch) and update the table so links stay correct for people you share this file with.
 
@@ -24,11 +25,16 @@ The **entity-service** is a small stack that:
 1. Exposes a **FastAPI** HTTP API that turns free text into a list of **entity candidates** (text span, label, offsets, confidence).
 2. Ships a **TypeScript** client and optional **TypeDB** helpers so callers can stay **schema-aware** without putting a database inside the Python service.
 
-**Non-negotiable architecture rule:** the Python service is a **pure data-processing pipeline**. It **must not** open connections to TypeDB, SQL, or any other database. Any graph or persistence layer (including TypeDB) lives **outside** Python—typically in TypeScript or another service that builds the `schema` object on each `POST /extract` request.
+**Architecture rules:**
+
+1. **`POST /extract`** never runs TypeDB queries itself. It only consumes the **`schema`** JSON you send (built in TypeScript or elsewhere).
+2. **Optional TypeDB HTTP (read-only)** — when `TYPEDB_*` / `TYPEDB_CONNECTION_STRING` are set on the **server**, FastAPI exposes **`/schema-pipeline/*`** so an orchestrator can: pull **raw** define text + sample rows from ER assumptions, **validate** types locally from that string, then fetch a **formatted** `schema` for `/extract`. This path is **read-only**; it does not define or migrate schema.
 
 ---
 
 ## 2. End-to-end data flow
+
+For **additional diagrams** (extract-only, schema pipeline sequence, TS-first path, tests/smoke), see **[`docs/ENTITY_SERVICE_WORKFLOWS.md`](./ENTITY_SERVICE_WORKFLOWS.md)**.
 
 ```mermaid
 flowchart LR
@@ -51,13 +57,13 @@ flowchart LR
   Pipe --> Resp[JSON entities]
   Resp --> TS
   Resp --> Other
+  API -. optional read .-> TDB
 ```
 
 1. **Caller** has raw `text` and optional `labels`, `options`, and `schema`.
 2. Optionally, **TypeScript** uses `@typedb/driver-http`, env-based config, and modules under `src/typedb/` to read a **slice** of the knowledge graph and normalize it to the same JSON shape as `schema`.
-3. **FastAPI** validates the body, runs the extractor (aliases, optional model, merge, label filter), returns **`entities`**.
-
-Nothing in `app/` imports a TypeDB driver or HTTP client for graph access.
+3. Optionally, the **same** TypeDB credentials on the server enable **`/schema-pipeline/raw` → `/validate` → `/formatted`** so the app can inspect raw ontology material, confirm types, then obtain a `schema` blob for **`POST /extract`**.
+4. **FastAPI** validates the body, runs the extractor (aliases, optional model, merge, label filter), returns **`entities`**.
 
 ---
 
@@ -66,6 +72,10 @@ Nothing in `app/` imports a TypeDB driver or HTTP client for graph access.
 ### `GET /health`
 
 Returns JSON like `{ "ok": true }`. Use for readiness checks.
+
+### `GET /ready`
+
+Same JSON as **`GET /health`**. Prefer this path if your orchestrator treats **`/docs`** as optional and you want a second stable liveness URL alongside **`/health`**.
 
 ### `POST /extract`
 
@@ -88,11 +98,27 @@ Returns JSON like `{ "ok": true }`. Use for readiness checks.
 
 **Wire format note:** Pydantic models use **camelCase** aliases for JSON (`entityTypes`, `knownEntities`, …). Some nested compatibility with snake_case exists where configured.
 
+**Label vocabulary (TypeQL / Music Ontology):** entity **`label`** values may be hyphenated TypeQL entity type names (for example **`mo-music-artist`**). When **`labels`** is non-empty, filtering uses **exact string equality** on **`label`**. Keep **`schema.knownEntities[].label`**, optional default aliases under **`app/config/aliases.py`**, and schema pipeline **`assumptions.entityTypes`** on the **same** strings end-to-end. TypeQL builders and define parsing accept these identifiers (see **`app/services/typeql_builders.py`** and **`app/services/typedb_define_parse.py`**).
+
+### Schema resolution pipeline (optional, server + TypeDB env)
+
+Use when the **app** must: (1) retrieve **raw** material from TypeDB from **ER assumptions** (entity types + `nameAttribute`), (2) **examine** the define schema offline to ensure those types and string `owns` exist, then (3) request a **formatted** `schema` matching **`POST /extract`**.
+
+| Method | Path | TypeDB required | Purpose |
+|--------|------|-----------------|--------|
+| `POST` | `/schema-pipeline/raw` | Yes (503 if unset) | Returns `typeSchemaDefine`, parsed entity labels, and per-type sample `answers` (bounded read) or error text. |
+| `POST` | `/schema-pipeline/validate` | No | Body includes prior `typeSchemaDefine` + `assumptions`; returns `ready` and `issues[]`. |
+| `POST` | `/schema-pipeline/formatted` | Yes | After validation, returns `{ entityTypes, knownEntities }` (same shape as `schema` on `/extract`). Set `skipOntologyPrecheck: true` only if you already validated. |
+
+Env vars match the TypeScript driver: **`TYPEDB_CONNECTION_STRING`** and/or **`TYPEDB_ADDRESSES`**, **`TYPEDB_USERNAME`**, **`TYPEDB_PASSWORD`**, **`TYPEDB_DATABASE`**.
+
+**Machine-readable errors:** when **`/schema-pipeline/raw`** or **`/formatted`** fail due to configuration, connectivity, or validation, FastAPI returns JSON shaped as **`{ "detail": { "code", "message", "hint?" } }`**. Stable `code` values include **`typedb_not_configured_on_entity_service`** (missing env on the API process), **`typedb_database_not_found`**, **`typedb_http_error`**, and **`schema_pipeline_validation_failed`**. Prefer parsing `detail.code` over scraping HTML or relying on status text alone.
+
 ---
 
 ## 4. `schema` payload (TS → Python)
 
-The `schema` object is how **callers** inject ontology- or catalog-driven hints **without** the Python process touching a database.
+The `schema` object is how **callers** inject ontology- or catalog-driven hints. Build it in **TypeScript** (`src/typedb/`) or via **`POST /schema-pipeline/formatted`** when server-side TypeDB reads are enabled.
 
 ### `schema.entityTypes`
 
@@ -132,12 +158,19 @@ text
 | Module | Responsibility |
 |--------|------------------|
 | `app/routes/extract.py` | Thin route: parse body, call extractor, return JSON. |
+| `app/routes/schema_pipeline.py` | Optional TypeDB **read** pipeline: `/schema-pipeline/raw`, `/validate`, `/formatted`. |
+| `app/services/schema_pipeline.py` | Orchestrates raw fetch, define parsing, validate, formatted `knownEntities`. |
+| `app/services/typedb_http_client.py` | Minimal TypeDB REST client (`httpx`). |
+| `app/services/typedb_connection.py` | Reads the same env vars as `src/typedb/env.ts`. |
+| `app/services/typedb_define_parse.py` | Parses `define` type-schema text for entity / `owns` / string attributes. |
+| `app/services/typeql_builders.py` | Safe `match`/`select` builders for bounded instance reads. |
 | `app/services/alias_matcher.py` | Substring alias scan, overlap handling, canonical text. |
 | `app/services/schema_aliases.py` | `schema` → extra alias rows. |
 | `app/services/merge.py` | Merge alias + model spans. |
 | `app/services/gliner_extractor.py` | Optional GLiNER (lazy load, feature flags). |
 | `app/services/spacy_extractor.py` | Stub for a possible future spaCy path (not wired into the main extractor unless you extend it). |
 | `app/config/aliases.py` | Default nested alias configuration. |
+| `app/schema_pipeline_models.py` | Pydantic models for pipeline requests/responses. |
 
 ---
 
@@ -244,6 +277,7 @@ This service does **not** parse RDF/TTL. To align with vocabularies such as the 
 
 | Symptom | Things to check |
 |---------|------------------|
+| Log line at API startup: “TypeDB HTTP is not configured in this process” | Expected when **`TYPEDB_*`** is unset on the **FastAPI** process. **`POST /schema-pipeline/raw`** / **`formatted`** will **503** until you load the same vars here (not only in GrooveGraph). |
 | TS tests skip TypeDB integration | `.env` at repo root; `TYPEDB_USERNAME` + `TYPEDB_DATABASE` or valid `TYPEDB_CONNECTION_STRING`; run `npm test` from repo root (`cwd`). |
 | `verifyTypeDbConnection` fails | Cluster URL, credentials, database name spelling; TLS / port in connection string. |
 | `assertExtractionPlanInOntology` throws | Entity type or attribute not present in **define** schema; adjust `entityTypes` / `nameAttribute` or schema in TypeDB. |
@@ -255,8 +289,10 @@ This service does **not** parse RDF/TTL. To align with vocabularies such as the 
 ## 12. File map (cheat sheet)
 
 ```text
+scripts/smoke_schema_pipeline.py   CLI: health + validate (+ optional /raw)
 app/main.py                 FastAPI app
 app/routes/extract.py       POST /extract
+app/routes/schema_pipeline.py   POST /schema-pipeline/*
 app/models.py               Request/response Pydantic models
 app/services/extractor.py   Pipeline orchestration
 app/config/aliases.py       Default aliases
@@ -264,6 +300,9 @@ app/config/aliases.py       Default aliases
 src/ner-client/             HTTP client + types
 src/typedb/                 TypeDB env, driver, verify, schema fetch, adapter, tests
 docs/USER_AND_AGENT_GUIDE.md   This document
+docs/ENTITY_SERVICE_WORKFLOWS.md   Mermaid workflows inside ES + integrators
+docs/NEW_AGENT_ONBOARDING_PROMPT.md   Handoff prompt for new agents
+docs/ENTITY_SERVICE_PUNCH_LIST.md   GrooveGraph ops / tags
 README.md                   Bootstrap, API tables, MO notes
 AGENTS.md                   Maintainer / agent roadmap
 ```
@@ -272,12 +311,13 @@ AGENTS.md                   Maintainer / agent roadmap
 
 ## 13. Summary for agents (copy-paste checklist)
 
-1. **Python never queries TypeDB** (or any DB).  
+1. **`POST /extract`** does not query TypeDB; it only consumes optional **`schema`** JSON.  
 2. **Callers** send optional **`schema`** on `POST /extract` to inject known entities and aliases.  
 3. **TypeScript** `src/typedb/` can build `schema` from TypeDB using env + `@typedb/driver-http`.  
-4. **Connection string** `TYPEDB_CONNECTION_STRING` is parsed for Cloud; **`TYPEDB_ADDRESSES`** overrides hosts.  
-5. **Ontology checks** in TS use the **define** type schema text + safe TypeQL for data reads.  
-6. **Stability** is anchored on **`entities[]`** shape; extend via optional request fields.  
-7. **Tests:** `uv run pytest`, `npm test`, `npm run smoke` for different layers.
+4. **Optional** same env on the **Python server** enables **`/schema-pipeline/raw`**, **`/validate`**, **`/formatted`** for raw → examine → formatted flows.  
+5. **Connection string** `TYPEDB_CONNECTION_STRING` is parsed for Cloud; **`TYPEDB_ADDRESSES`** overrides hosts (TS and Python).  
+6. **Ontology checks** use **define** type schema parsing + safe TypeQL for bounded data reads.  
+7. **Stability** is anchored on **`entities[]`** shape; extend via optional request fields.  
+8. **Tests:** `uv run pytest`, `uv run pytest -q -m contract` (offline HTTP contracts), `npm test`, `npm run smoke`, `npm run smoke:schema-pipeline` for different layers.
 
 When in doubt, read **`app/services/extractor.py`** for runtime order and **`app/models.py`** for the exact JSON contract.

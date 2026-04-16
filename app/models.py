@@ -12,7 +12,7 @@ from pydantic import (
 class EntityTypePayload(BaseModel):
     """Type-level hints from TS (future constraints / EntityRuler-style labels)."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     name: str
     aliases: list[str] = Field(default_factory=list)
@@ -40,7 +40,7 @@ def _coerce_entity_types(v: Any) -> list[Any]:
 class KnownEntityPayload(BaseModel):
     """One canonical entity plus optional surface strings (from schema / TypeDB)."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     label: str
     canonical: str = Field(
@@ -53,7 +53,7 @@ class KnownEntityPayload(BaseModel):
 class EntitySchemaPayload(BaseModel):
     """Schema context from the TS client. No database access in Python — TS sends slices."""
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     entity_types: Annotated[
         list[EntityTypePayload],
@@ -68,12 +68,14 @@ class EntitySchemaPayload(BaseModel):
 class ExtractOptions(BaseModel):
     """Optional extraction switches; omitted request.options defaults to aliases on, model off."""
 
+    model_config = ConfigDict(extra="ignore")
+
     use_aliases: bool = True
     use_model: bool = False
 
 
 class ExtractRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     text: str
     labels: list[str] = Field(default_factory=list)
