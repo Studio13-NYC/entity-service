@@ -8,13 +8,13 @@ This document is for **humans integrating** the NER / entity extraction HTTP ser
 
 | | |
 |--|--|
-| **Clone (HTTPS)** | `https://github.com/Studio13/entity-service.git` |
-| **Repository (browse)** | `https://github.com/Studio13/entity-service` |
-| **This document on the default branch** | `https://github.com/Studio13/entity-service/blob/master/docs/USER_AND_AGENT_GUIDE.md` |
+| **Clone (HTTPS)** | `https://github.com/Studio13-NYC/entity-service.git` |
+| **Repository (browse)** | `https://github.com/Studio13-NYC/entity-service` |
+| **This document on the default branch** | `https://github.com/Studio13-NYC/entity-service/blob/main/docs/USER_AND_AGENT_GUIDE.md` |
 | **Path inside any checkout** | `docs/USER_AND_AGENT_GUIDE.md` |
 | **Workflow diagrams (Mermaid)** | [`docs/ENTITY_SERVICE_WORKFLOWS.md`](./ENTITY_SERVICE_WORKFLOWS.md) |
 
-If your published remote differs from `Studio13/entity-service` or your default branch is not `master`, run `git remote get-url origin` and `git branch --show-default` (or check your host’s default branch) and update the table so links stay correct for people you share this file with.
+Canonical remote is **`Studio13-NYC/entity-service`**. If your fork or default branch name differs, run `git remote get-url origin` and `git branch --show-default` and adjust the table links for your readers.
 
 ---
 

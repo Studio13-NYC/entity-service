@@ -12,8 +12,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/Studio13/entity-service"
-Documentation = "https://github.com/Studio13/entity-service/blob/master/docs/USER_AND_AGENT_GUIDE.md"
+Repository = "https://github.com/Studio13-NYC/entity-service"
+Documentation = "https://github.com/Studio13-NYC/entity-service/blob/main/docs/USER_AND_AGENT_GUIDE.md"
 
 [project.optional-dependencies]
 ml = [
