@@ -24,6 +24,7 @@ async def extract(req: ExtractRequest):
     opts = req.options
     use_aliases = True if opts is None else opts.use_aliases
     use_model = False if opts is None else opts.use_model
+    use_gg_generic_catalog = False if opts is None else opts.use_gg_generic_for_unknown_catalog_labels
 
     typedb_entity_labels: frozenset[str] | None = None
     if req.use_typedb_types:
@@ -66,10 +67,11 @@ async def extract(req: ExtractRequest):
         use_model=use_model,
         schema=req.entity_schema,
         typedb_entity_labels=typedb_entity_labels,
+        use_gg_generic_for_unknown_catalog_labels=use_gg_generic_catalog,
     )
     _LOG.info(
         "extract_done text_len=%d labels=%s entity_count=%d use_aliases=%s use_model=%s "
-        "has_schema=%s use_typedb_types=%s type_candidate_count=%d",
+        "has_schema=%s use_typedb_types=%s use_gg_generic_catalog_fallback=%s type_candidate_count=%d",
         len(req.text),
         req.labels,
         len(out.entities),
@@ -77,6 +79,7 @@ async def extract(req: ExtractRequest):
         use_model,
         req.entity_schema is not None,
         req.use_typedb_types,
+        use_gg_generic_catalog,
         len(out.type_candidates),
     )
     return ExtractResponse(entities=out.entities, type_candidates=out.type_candidates)

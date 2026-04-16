@@ -83,7 +83,7 @@ entity-service/
     middleware/
       request_trace.py        # Per-request trace + X-Request-Id
     logging_setup.py          # app.* stderr logging + request_id in format
-    pipeline_file_log.py      # Optional rotating logs under logs/pipeline/
+    pipeline_file_log.py      # Rotating app.pipeline logs under docs/logs/ (default)
     request_context.py        # contextvar request_id for log filter
     services/
       __init__.py
@@ -242,7 +242,7 @@ Expect **`"ready": true`** in the JSON (omit **`| jq .`** if you do not have jq)
 
 **HTTP request tracing (verbose by default):** every response includes **`X-Request-Id`**. Structured lines go to **stderr** under loggers `app.*` (start/end, optional JSON body preview at **DEBUG**). Turn off body capture in production with **`ENTITY_SERVICE_LOG_REQUEST_BODIES=0`**. See **`docs/USER_AND_AGENT_GUIDE.md`** §8 (HTTP request tracing).
 
-**Pipeline file logs (optional):** set **`ENTITY_SERVICE_PIPELINE_LOG_FILE=1`** to write rotating logs under **`logs/pipeline/`** (or **`ENTITY_SERVICE_PIPELINE_LOG_DIR`**). The directory is **gitignored**; use for GrooveGraph / agent self-evaluation of merge and typing stages.
+**Pipeline file logs:** by default the server **always** appends rotating logs to **`docs/logs/entity-service-pipeline.log`** (relative to the process working directory, usually the repo root). Set **`ENTITY_SERVICE_PIPELINE_LOG_FILE=0`** to disable; override the directory with **`ENTITY_SERVICE_PIPELINE_LOG_DIR`**. The **`docs/logs/`** tree is **gitignored**.
 
 **One command (Python smoke, API must already be running):** from repo root, with **`uv`** on your PATH:
 
@@ -289,7 +289,7 @@ See **`docs/USER_AND_AGENT_GUIDE.md`** §3. If TypeDB env is missing, **`/raw`**
 
 #### `POST /extract` response shape (stable core + additive fields)
 
-Each **`entities[]`** item always includes **`text`**, **`label`**, **`start`**, **`end`**, **`confidence`**. The response also includes **`typeCandidates`** (labels the pipeline considered: TypeDB define types when applicable, schema, alias/model path). When **`useTypeDbTypes`** is **`true`**, spans whose label is not in the live TypeDB define schema are emitted with a **`generic:`…** label, and per-item **`labelCandidates`** may be present.
+Each **`entities[]`** item always includes **`text`**, **`label`**, **`start`**, **`end`**, **`confidence`**. The response also includes **`typeCandidates`** (labels the pipeline considered: TypeDB define types when applicable, schema, alias/model path). When **`useTypeDbTypes`** is **`true`**, spans whose label is not in the live TypeDB define schema are emitted with the literal **`gg-generic`** label (GrooveGraph catalog bucket), and per-item **`labelCandidates`** may be present.
 
 ```json
 {
@@ -316,6 +316,7 @@ Each **`entities[]`** item always includes **`text`**, **`label`**, **`start`**,
 | `labels` | string[] | Omit or `[]`: no label filter. Non-empty: only entities whose `label` is in the list. |
 | `options` | object | Omit: `{ "use_aliases": true, "use_model": false }`. |
 | `options.use_aliases` | boolean | If `false`, skips file + schema alias matching. |
+| `options.useGgGenericForUnknownCatalogLabels` | boolean | Default **`false`**. If **`true`** and **`useTypeDbTypes`** is **`false`**, remap entity labels not listed in **`schema`** to **`gg-generic`** (helps narrow **`labels`** filters with a DB-backed schema slice). Ignored when **`useTypeDbTypes`** is **`true`** (TypeDB alignment handles unknown labels). |
 | `options.use_model` | boolean | If `true`, merges GLiNER spans when `GLINER_ENABLED` and the `ml` extra are installed; otherwise the model path returns no entities. |
 | `schema` | object | Omit: no extra runtime aliases. See below. |
 | `useTypeDbTypes` | boolean | Default **`false`**. If **`true`**, performs **read-only** TypeDB type-schema fetch on this process and aligns labels (requires **`TYPEDB_*`** on the FastAPI process; see **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**). |

@@ -18,11 +18,11 @@ GrooveGraph (**`gg`**) and other clients integrate with **entity-service** over 
 | 6 | Safe logging for large define text | **Done:** sizes + SHA-256 at INFO; **`ENTITY_SERVICE_DEBUG_TYPEDB_BODY`** | — |
 | 7 | Smoke / short loop | **Done:** `scripts/smoke_schema_pipeline.py`, **`npm run smoke:schema-pipeline*`**, README | **You:** run smoke against the URL where ES listens. |
 | 8 | Contract tests without Brave | **Done:** **`pytest -m contract`**, `tests/test_contract_offline.py` | **You:** run **`uv run pytest -q -m contract`** in CI that only checks ES contracts. |
-| 9 | GrooveGraph extract + RAW discovery | **Done:** **`useTypeDbTypes`** on **`POST /extract`** (read-only define, **`typeCandidates`**, **`generic:`** fallback), **`genericEntities`** + **`typeCandidates`** on **`/raw`**, auto-sample when **`entityTypes`** is `[]`, pipeline **`logs/`** file logging | **You:** load **`TYPEDB_*`** on the ES process; see **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**. |
+| 9 | GrooveGraph extract + RAW discovery | **Done:** **`useTypeDbTypes`** on **`POST /extract`** (read-only define, **`typeCandidates`**, **`gg-generic`** fallback for unknown labels), **`genericEntities`** + **`typeCandidates`** on **`/raw`**, auto-sample when **`entityTypes`** is `[]`, pipeline logs under **`docs/logs/`** (default) | **You:** load **`TYPEDB_*`** on the ES process; see **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**. |
 
 ---
 
-## GrooveGraph tracking tags (formerly “PR tags”)
+## GrooveGraph tracking tags
 
 | Tag | Where it appears | What it means |
 | --- | --- | --- |
@@ -57,3 +57,5 @@ GrooveGraph (**`gg`**) and other clients integrate with **entity-service** over 
 ---
 
 When you change HTTP behavior, update **`docs/USER_AND_AGENT_GUIDE.md`** / **`README.md`** and adjust this table if new tags are needed.
+
+**GrooveGraph client backlog:** [Studio13-NYC/GrooveGraph `docs/NEXT_AGENT_TODO.md`](https://github.com/Studio13-NYC/GrooveGraph/blob/main/docs/NEXT_AGENT_TODO.md) (prioritized P0–P3).

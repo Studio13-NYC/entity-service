@@ -1,4 +1,4 @@
-"""Optional rotating file logs under ``logs/`` for pipeline self-evaluation (GrooveGraph / agents)."""
+"""Rotating file logs for ``app.pipeline`` under ``docs/logs`` (always on unless disabled)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from app.request_context import request_id_ctx
 
 _configured = False
 
+_DEFAULT_LOG_DIR = "docs/logs"
+
 
 class _RequestIdFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -22,17 +24,25 @@ class _RequestIdFilter(logging.Filter):
 
 
 def configure_pipeline_file_logging() -> None:
-    """Attach ``app.pipeline`` file handler when ``ENTITY_SERVICE_PIPELINE_LOG_FILE`` is truthy."""
+    """Attach ``app.pipeline`` RotatingFileHandler under ``docs/logs`` by default.
+
+    Set ``ENTITY_SERVICE_PIPELINE_LOG_FILE`` to ``0`` / ``false`` / ``no`` / ``off`` to disable
+    file output (e.g. in constrained CI). Override directory with ``ENTITY_SERVICE_PIPELINE_LOG_DIR``.
+    """
     global _configured
     if _configured:
         return
 
     raw = os.environ.get("ENTITY_SERVICE_PIPELINE_LOG_FILE", "").strip().lower()
-    if raw not in ("1", "true", "yes", "on"):
+    if raw in ("0", "false", "no", "off"):
+        pl = logging.getLogger("app.pipeline")
+        if not pl.handlers:
+            pl.addHandler(logging.NullHandler())
+        pl.propagate = False
         _configured = True
         return
 
-    rel = os.environ.get("ENTITY_SERVICE_PIPELINE_LOG_DIR", "logs/pipeline").strip() or "logs/pipeline"
+    rel = os.environ.get("ENTITY_SERVICE_PIPELINE_LOG_DIR", _DEFAULT_LOG_DIR).strip() or _DEFAULT_LOG_DIR
     root = Path(rel)
     if not root.is_absolute():
         root = Path.cwd() / root

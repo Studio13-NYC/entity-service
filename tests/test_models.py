@@ -38,6 +38,7 @@ def test_extract_request_options_partial_overrides() -> None:
     assert req.options is not None
     assert req.options.use_aliases is False
     assert req.options.use_model is False
+    assert req.options.use_gg_generic_for_unknown_catalog_labels is False
 
 
 def test_extract_request_options_both_flags() -> None:
@@ -60,6 +61,14 @@ def test_extract_options_model_validate() -> None:
     o = ExtractOptions.model_validate({"use_model": True})
     assert o.use_aliases is True
     assert o.use_model is True
+    assert o.use_gg_generic_for_unknown_catalog_labels is False
+
+
+def test_extract_options_use_gg_generic_catalog_fallback_alias() -> None:
+    o = ExtractOptions.model_validate({"useGgGenericForUnknownCatalogLabels": True})
+    assert o.use_gg_generic_for_unknown_catalog_labels is True
+    assert o.use_aliases is True
+    assert o.use_model is False
 
 
 def test_known_entity_accepts_canonical_text_key() -> None:

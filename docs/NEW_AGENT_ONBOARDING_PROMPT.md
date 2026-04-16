@@ -10,7 +10,7 @@ You are taking over **entity-service**: a small **FastAPI** repo plus **TypeScri
 
 1. **`docs/USER_AND_AGENT_GUIDE.md`** — end-to-end architecture, HTTP contracts, `schema` shape, TypeDB env, tests, troubleshooting, and **§8 HTTP request tracing** (`X-Request-Id`, stderr `app.*` logs, env to tune verbosity / body capture). **Primary handbook.**
 2. **`README.md`** — bootstrap, commands, HTTP tables, layout, smoke / repair scripts.
-3. **`AGENTS.md`** — maintainer roadmap, constraints, historical objectives.
+3. **`AGENTS.md`** — maintainer index: canonical doc links, **`gg-generic`** contract, non-negotiables.
 4. **`docs/ENTITY_SERVICE_PUNCH_LIST.md`** — **tracking tags** plus a **status table**: entity-service deliveries vs **GrooveGraph client** follow-ups (env on ES process, `gg doctor` URL, CI commands).
 5. **`docs/ENTITY_SERVICE_WORKFLOWS.md`** — Mermaid diagrams: extract-only, client `schema`, `/schema-pipeline/*`, TS-first TypeDB, tests/smoke, **observability**.
 
@@ -27,7 +27,7 @@ Repository URLs (if published): see the table at the top of `docs/USER_AND_AGENT
 
 ## 3. Mental model (one paragraph)
 
-Callers send **`text`** + optional **`labels`**, **`options`**, **`schema`**, **`useTypeDbTypes`**. The Python pipeline runs: optional read-only TypeDB define fetch (when **`useTypeDbTypes`**) → optional aliases (file + `schema` rows) → optional GLiNER (`ml` extra + `GLINER_ENABLED`) → **RapidFuzz merge** → label filter → sort → **`entities`** + **`typeCandidates`**. For “raw define + validate types + formatted schema” without **`useTypeDbTypes`**, use **`/schema-pipeline/*`** or build **`schema`** in **`src/typedb/`** with `@typedb/driver-http`. Every HTTP call is traceable via **`X-Request-Id`** and **`app.*`** logs on stderr (verbose by default); optional rotating file logs under **`logs/`** when **`ENTITY_SERVICE_PIPELINE_LOG_FILE=1`**.
+Callers send **`text`** + optional **`labels`**, **`options`**, **`schema`**, **`useTypeDbTypes`**. The Python pipeline runs: optional read-only TypeDB define fetch (when **`useTypeDbTypes`**) → optional aliases (file + `schema` rows) → optional GLiNER (`ml` extra + `GLINER_ENABLED`) → **RapidFuzz merge** → label filter → sort → **`entities`** + **`typeCandidates`**. For “raw define + validate types + formatted schema” without **`useTypeDbTypes`**, use **`/schema-pipeline/*`** or build **`schema`** in **`src/typedb/`** with `@typedb/driver-http`. Every HTTP call is traceable via **`X-Request-Id`** and **`app.*`** logs on stderr (verbose by default); **`app.pipeline`** also writes rotating file logs under **`docs/logs/`** by default (set **`ENTITY_SERVICE_PIPELINE_LOG_FILE=0`** to turn off).
 
 ## 4. Repo map (where to edit what)
 
@@ -35,7 +35,7 @@ Callers send **`text`** + optional **`labels`**, **`options`**, **`schema`**, **
 |------|------|
 | FastAPI app | `app/main.py` — lifespan, routers: `health`, `extract`, `schema_pipeline`; **`RequestTraceMiddleware`** |
 | HTTP tracing | `app/middleware/request_trace.py`, `app/logging_setup.py`, `app/request_context.py` |
-| Pipeline file logs | `app/pipeline_file_log.py` — optional **`logs/pipeline/`** when **`ENTITY_SERVICE_PIPELINE_LOG_FILE=1`** |
+| Pipeline file logs | `app/pipeline_file_log.py` — default **`docs/logs/entity-service-pipeline.log`** (disable with **`ENTITY_SERVICE_PIPELINE_LOG_FILE=0`**) |
 | TypeDB labels for `/extract` | `app/services/typedb_types_fetch.py` (read-only define parse) |
 | Extract contract | `app/models.py`, `app/routes/extract.py`, `app/services/extractor.py` |
 | Aliases | `app/config/aliases.py`, `app/services/alias_matcher.py`, `app/services/schema_aliases.py` |
@@ -73,7 +73,7 @@ uv run python scripts/smoke_schema_pipeline.py --typedb   # requires TYPEDB_* on
 - **GLiNER:** `uv sync --extra ml`, `GLINER_ENABLED`, optional `GLINER_MODEL_ID`; see README.
 - **Smoke:** `NER_SERVICE_URL` if not default.
 - **HTTP tracing (verbosity):** `ENTITY_SERVICE_REQUEST_TRACE_LEVEL` (default **DEBUG**), `ENTITY_SERVICE_LOG_REQUEST_BODIES` (default **on** — set **`0`** in production if bodies are sensitive), `ENTITY_SERVICE_LOG_BODY_MAX_BYTES`, optional `ENTITY_SERVICE_LOG_FORMAT` / `ENTITY_SERVICE_LOG_BODY_SINGLE_LINE`. Details: **`docs/USER_AND_AGENT_GUIDE.md`** §8.
-- **Pipeline file logs:** `ENTITY_SERVICE_PIPELINE_LOG_FILE=1`, optional `ENTITY_SERVICE_PIPELINE_LOG_DIR` (default **`logs/pipeline/`**). Handbook §8.
+- **Pipeline file logs:** default **`docs/logs/`**; set **`ENTITY_SERVICE_PIPELINE_LOG_FILE=0`** to disable; optional **`ENTITY_SERVICE_PIPELINE_LOG_DIR`**. Handbook §8.
 - **TypeDB HTTP client debug:** `ENTITY_SERVICE_DEBUG_TYPEDB_BODY=1` logs truncated type-schema / TypeQL (see README).
 
 ## 7. Integration pitfalls (institutional knowledge)

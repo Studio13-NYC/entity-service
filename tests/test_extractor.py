@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.models import EntityCandidate
+from app.models import EntityCandidate, EntitySchemaPayload
 from app.services.extractor import extract_entities
 
 
@@ -90,3 +90,47 @@ def test_use_model_true_without_integration_still_returns_aliases() -> None:
 
 def test_use_aliases_false_and_use_model_true_returns_empty() -> None:
     assert extract_entities("Matt Sweet", use_aliases=False, use_model=True) == []
+
+
+def test_catalog_fallback_maps_non_schema_alias_label_to_gg_generic() -> None:
+    schema = EntitySchemaPayload.model_validate(
+        {"entityTypes": ["mo-music-artist"], "knownEntities": []},
+    )
+    entities = extract_entities(
+        "Matt Sweet",
+        labels=["mo-music-artist", "gg-generic"],
+        schema=schema,
+        use_gg_generic_for_unknown_catalog_labels=True,
+    )
+    assert len(entities) == 1
+    assert entities[0].label == "gg-generic"
+    assert entities[0].text == "Matthew Sweet"
+    assert entities[0].label_candidates
+
+
+def test_catalog_fallback_off_drops_non_schema_labels_under_narrow_filter() -> None:
+    schema = EntitySchemaPayload.model_validate(
+        {"entityTypes": ["mo-music-artist"], "knownEntities": []},
+    )
+    entities = extract_entities(
+        "Matt Sweet",
+        labels=["mo-music-artist", "gg-generic"],
+        schema=schema,
+        use_gg_generic_for_unknown_catalog_labels=False,
+    )
+    assert entities == []
+
+
+def test_catalog_fallback_preserves_label_when_in_schema() -> None:
+    schema = EntitySchemaPayload.model_validate(
+        {"entityTypes": ["artist", "mo-music-artist"], "knownEntities": []},
+    )
+    entities = extract_entities(
+        "Matt Sweet",
+        labels=["artist", "gg-generic"],
+        schema=schema,
+        use_gg_generic_for_unknown_catalog_labels=True,
+    )
+    assert len(entities) == 1
+    assert entities[0].label == "artist"
+    assert entities[0].label_candidates is None

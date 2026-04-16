@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 
 from app.models import EntityCandidate, EntitySchemaPayload, TypeCandidateItem
@@ -12,12 +11,8 @@ from app.services.schema_aliases import alias_rows_from_schema
 
 _PL = logging.getLogger("app.pipeline")
 
-_GENERIC_LABEL_SAFE = re.compile(r"[^a-zA-Z0-9_.:-]+")
-
-
-def _sanitize_generic_suffix(label: str) -> str:
-    s = _GENERIC_LABEL_SAFE.sub("_", label.strip())
-    return s or "unknown"
+# GrooveGraph TypeQL `entity gg-generic` — stable HTTP label when define has no matching type.
+GG_GENERIC_LABEL = "gg-generic"
 
 
 @dataclass(frozen=True)
@@ -63,6 +58,45 @@ def _build_global_type_candidates(
     return items
 
 
+def _apply_schema_catalog_allowlist_fallback(
+    entities: list[EntityCandidate],
+    schema: EntitySchemaPayload | None,
+) -> list[EntityCandidate]:
+    """Map labels outside the request ``schema`` vocabulary to ``gg-generic`` (TypeDB alignment off)."""
+
+    allowed: frozenset[str] = frozenset(_collect_schema_labels(schema)) | {GG_GENERIC_LABEL}
+    out: list[EntityCandidate] = []
+    for e in entities:
+        if e.label in allowed:
+            out.append(e)
+            continue
+        label_candidates = [
+            TypeCandidateItem(
+                label=e.label,
+                source="extractor",
+                score=e.confidence,
+                fits_existing_type=False,
+            ),
+            TypeCandidateItem(
+                label=GG_GENERIC_LABEL,
+                source="schema_catalog_fallback",
+                score=e.confidence,
+                fits_existing_type=False,
+            ),
+        ]
+        out.append(
+            EntityCandidate(
+                text=e.text,
+                label=GG_GENERIC_LABEL,
+                start=e.start,
+                end=e.end,
+                confidence=e.confidence,
+                label_candidates=label_candidates,
+            ),
+        )
+    return out
+
+
 def _apply_typedb_label_alignment(
     entities: list[EntityCandidate],
     typedb_labels: frozenset[str],
@@ -73,7 +107,7 @@ def _apply_typedb_label_alignment(
         if fits:
             new_label = e.label
         else:
-            new_label = f"generic:{_sanitize_generic_suffix(e.label)}"
+            new_label = GG_GENERIC_LABEL
         label_candidates = [
             TypeCandidateItem(
                 label=e.label,
@@ -112,6 +146,7 @@ def extract_entities_outcome(
     use_model: bool = False,
     schema: EntitySchemaPayload | None = None,
     typedb_entity_labels: frozenset[str] | None = None,
+    use_gg_generic_for_unknown_catalog_labels: bool = False,
 ) -> ExtractEntitiesOutcome:
     entities: list[EntityCandidate] = []
     candidate_labels: set[str] = _collect_schema_labels(schema)
@@ -143,17 +178,20 @@ def extract_entities_outcome(
     if not entities:
         _PL.info(
             "extract_empty_after_merge text_len=%d use_aliases=%s use_model=%s has_schema=%s "
-            "typedb_align=%s label_filter=%s",
+            "typedb_align=%s catalog_fallback=%s label_filter=%s",
             len(text),
             use_aliases,
             use_model,
             schema is not None,
             typedb_entity_labels is not None,
+            use_gg_generic_for_unknown_catalog_labels,
             labels,
         )
 
     if typedb_entity_labels is not None:
         entities = _apply_typedb_label_alignment(entities, typedb_entity_labels)
+    elif use_gg_generic_for_unknown_catalog_labels:
+        entities = _apply_schema_catalog_allowlist_fallback(entities, schema)
 
     if labels:
         before = len(entities)
@@ -182,6 +220,7 @@ def extract_entities(
     use_model: bool = False,
     schema: EntitySchemaPayload | None = None,
     typedb_entity_labels: frozenset[str] | None = None,
+    use_gg_generic_for_unknown_catalog_labels: bool = False,
 ) -> list[EntityCandidate]:
     """Return sorted ``EntityCandidate`` rows (stable tests); see ``extract_entities_outcome`` for metadata."""
     return extract_entities_outcome(
@@ -191,6 +230,7 @@ def extract_entities(
         use_model=use_model,
         schema=schema,
         typedb_entity_labels=typedb_entity_labels,
+        use_gg_generic_for_unknown_catalog_labels=use_gg_generic_for_unknown_catalog_labels,
     ).entities
 
 

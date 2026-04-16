@@ -68,10 +68,18 @@ class EntitySchemaPayload(BaseModel):
 class ExtractOptions(BaseModel):
     """Optional extraction switches; omitted request.options defaults to aliases on, model off."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
     use_aliases: bool = True
     use_model: bool = False
+    use_gg_generic_for_unknown_catalog_labels: bool = Field(
+        default=False,
+        alias="useGgGenericForUnknownCatalogLabels",
+        description=(
+            "When true (and useTypeDbTypes is false), remap entity labels not present in schema "
+            "(entityTypes + knownEntities labels) to gg-generic so narrow labels[] filters still return spans."
+        ),
+    )
 
 
 class TypeCandidateItem(BaseModel):

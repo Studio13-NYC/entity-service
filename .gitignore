@@ -24,7 +24,8 @@ dist/
 .env
 .env.local
 
-# Pipeline file logs (optional ENTITY_SERVICE_PIPELINE_LOG_FILE)
+# Pipeline file logs (default docs/logs/; legacy logs/ if ENTITY_SERVICE_PIPELINE_LOG_DIR is set)
+docs/logs/
 logs/
 
 # Node

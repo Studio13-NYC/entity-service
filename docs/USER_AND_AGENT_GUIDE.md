@@ -85,9 +85,9 @@ Same JSON as **`GET /health`**. Prefer this path if your orchestrator treats **`
 |--------|----------|---------|
 | `text` | Yes | Input string to analyze. |
 | `labels` | No | If non-empty, only entities whose **`label`** is in this list are returned. If omitted or `[]`, no label filter. |
-| `options` | No | `{ "use_aliases": boolean, "use_model": boolean }`. Defaults: aliases **on**, model **off**. |
+| `options` | No | `{ "use_aliases": boolean, "use_model": boolean, "useGgGenericForUnknownCatalogLabels": boolean }`. Defaults: aliases **on**, model **off**, catalog fallback **off**. When **`useGgGenericForUnknownCatalogLabels`** is **true** and **`useTypeDbTypes`** is **false**, labels not present in **`schema`** (`entityTypes` + `knownEntities`) are rewritten to **`gg-generic`** before the **`labels`** filter. |
 | `schema` | No | Optional **runtime** vocabulary: `entityTypes` + `knownEntities`. Drives extra alias rows for this request only. |
-| `useTypeDbTypes` | No | Default **`false`**. If **`true`**, read-only TypeDB **define** fetch on this process; labels not in the schema get a **`generic:`…** prefix. Requires **`TYPEDB_*`** on the FastAPI process. See **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**. |
+| `useTypeDbTypes` | No | Default **`false`**. If **`true`**, read-only TypeDB **define** fetch on this process; labels not in the schema are rewritten to the literal **`gg-generic`**. Requires **`TYPEDB_*`** on the FastAPI process. See **`docs/GROOVEGRAPH_TYPEDB_ON_ENTITY_SERVICE.md`**. |
 
 **Response body** (JSON):
 
@@ -101,6 +101,8 @@ Same JSON as **`GET /health`**. Prefer this path if your orchestrator treats **`
 **Wire format note:** Pydantic models use **camelCase** aliases for JSON (`entityTypes`, `knownEntities`, …). Some nested compatibility with snake_case exists where configured.
 
 **Label vocabulary (TypeQL / Music Ontology):** entity **`label`** values may be hyphenated TypeQL entity type names (for example **`mo-music-artist`**). When **`labels`** is non-empty, filtering uses **exact string equality** on **`label`**. Keep **`schema.knownEntities[].label`**, optional default aliases under **`app/config/aliases.py`**, and schema pipeline **`assumptions.entityTypes`** on the **same** strings end-to-end. TypeQL builders and define parsing accept these identifiers (see **`app/services/typeql_builders.py`** and **`app/services/typedb_define_parse.py`**).
+
+**Reserved generic label (GrooveGraph interoperability):** with **`useTypeDbTypes`**, unknown pipeline labels map to the literal **`gg-generic`** on **`entities[].label`** (same string as TypeQL **`entity gg-generic`** in GrooveGraph). GrooveGraph **`gg explore`** includes **`gg-generic`** in **`POST /extract`** **`labels`** so these rows are not filtered out.
 
 ### Schema resolution pipeline (optional, server + TypeDB env)
 
@@ -272,12 +274,12 @@ Log line shape: timestamp, **request id**, level, logger name, message. **`POST 
 
 Implementation: `app/middleware/request_trace.py`, `app/logging_setup.py`, `app/request_context.py`.
 
-### Optional pipeline file logs (`logs/`)
+### Pipeline file logs (`docs/logs/`)
 
 | Variable | Default | Meaning |
 |----------|---------|--------|
-| **`ENTITY_SERVICE_PIPELINE_LOG_FILE`** | off | Set to **`1`** / **`true`** to append rotating logs under **`ENTITY_SERVICE_PIPELINE_LOG_DIR`** (default **`logs/pipeline/`**). Logger: **`app.pipeline`** (merge / empty-result / formatted-empty hints). |
-| **`ENTITY_SERVICE_PIPELINE_LOG_DIR`** | `logs/pipeline` | Directory for **`entity-service-pipeline.log`** (created if missing; **`logs/`** is gitignored). |
+| **`ENTITY_SERVICE_PIPELINE_LOG_FILE`** | *(on)* | Set to **`0`** / **`false`** / **`no`** / **`off`** to **disable** file logging. Otherwise **`app.pipeline`** always writes rotating logs under **`ENTITY_SERVICE_PIPELINE_LOG_DIR`**. |
+| **`ENTITY_SERVICE_PIPELINE_LOG_DIR`** | `docs/logs` | Directory for **`entity-service-pipeline.log`** (created if missing; **`docs/logs/`** is gitignored). |
 | **`ENTITY_SERVICE_PIPELINE_LOG_MAX_BYTES`** | `10485760` | Rotate when log file exceeds this size. |
 | **`ENTITY_SERVICE_PIPELINE_LOG_BACKUPS`** | `5` | Number of rotated files to keep. |
 
@@ -321,7 +323,7 @@ scripts/smoke_schema_pipeline.py   CLI: health + validate (+ optional /raw)
 app/main.py                 FastAPI app
 app/middleware/request_trace.py   HTTP trace + X-Request-Id
 app/logging_setup.py        stderr logging + request_id format
-app/pipeline_file_log.py    optional rotating file logs under logs/
+app/pipeline_file_log.py    rotating ``app.pipeline`` logs under docs/logs/ (default)
 app/request_context.py      request_id contextvar
 app/routes/extract.py       POST /extract
 app/routes/schema_pipeline.py   POST /schema-pipeline/*

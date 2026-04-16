@@ -1,6 +1,8 @@
 export type ExtractOptions = {
   use_aliases?: boolean;
   use_model?: boolean;
+  /** When true (and `useTypeDbTypes` is false), map labels not in `schema` to `gg-generic`. */
+  useGgGenericForUnknownCatalogLabels?: boolean;
 };
 
 export type TypeCandidateItem = {

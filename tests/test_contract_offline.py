@@ -111,7 +111,7 @@ def test_post_extract_use_typedb_types_503_when_typedb_unconfigured(
 
 
 @pytest.mark.contract
-def test_post_extract_use_typedb_types_generic_when_label_not_in_schema(
+def test_post_extract_use_typedb_types_gg_generic_when_label_not_in_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import app.routes.extract as ex
@@ -137,9 +137,26 @@ def test_post_extract_use_typedb_types_generic_when_label_not_in_schema(
     body = r.json()
     assert len(body["entities"]) == 1
     ent = body["entities"][0]
-    assert ent["label"].startswith("generic:")
+    assert ent["label"] == "gg-generic"
     assert ent.get("labelCandidates")
     assert "typeCandidates" in body
+
+
+@pytest.mark.contract
+def test_post_extract_catalog_fallback_option_maps_to_gg_generic() -> None:
+    r = client.post(
+        "/extract",
+        json={
+            "text": "Matt Sweet",
+            "labels": ["mo-music-artist", "gg-generic"],
+            "schema": {"entityTypes": ["mo-music-artist"], "knownEntities": []},
+            "options": {"useGgGenericForUnknownCatalogLabels": True},
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["entities"]) == 1
+    assert body["entities"][0]["label"] == "gg-generic"
 
 
 @pytest.mark.contract
